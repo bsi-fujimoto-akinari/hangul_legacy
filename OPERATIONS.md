@@ -1092,3 +1092,13 @@ not be returned or printed. Unknown errors collapse to
 re-quiesce and read back `QUIESCED`, fallback trigger count `1`, and
 mutation count `0` before returning a failure result. Diagnostic reporting
 does not authorize redispatch or any additional production mutation.
+
+Failure localization uses only an execution-local stage marker; it must not be
+stored in Script Properties, D1, Drive, or any other persistent authority. The
+one-shot marks the bounded operations in order through writer preflight,
+plan/binding preflight, R2 preflight, Drive preflight, writer switch, first
+receipt call/validation, second receipt call/validation, re-quiesce, and final
+state readback. If a receipt-path operation fails, the original failure stage
+is captured before re-quiesce and restored immediately before the sanitized
+failure is rethrown, so cleanup cannot overwrite the diagnostic location.
+Stage markers do not change writer semantics and do not authorize redispatch.

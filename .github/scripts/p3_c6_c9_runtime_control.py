@@ -128,12 +128,12 @@ def main() -> None:
                 "R2_PREFLIGHT",
                 "DRIVE_PREFLIGHT",
                 "WRITER_SWITCH",
+                "FIRST_RECEIPT_CALL",
                 "FIRST_RECEIPT_VALIDATION",
+                "SECOND_RECEIPT_CALL",
                 "SECOND_RECEIPT_VALIDATION",
-                "R2_RECEIPT_WRITE",
                 "REQUIESCE",
                 "FINAL_STATE",
-                "RUNTIME_RPC_OR_MEDIA",
                 "UNCLASSIFIED",
             }
             allowed_prefixes = (
