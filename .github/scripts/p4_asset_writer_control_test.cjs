@@ -299,7 +299,7 @@ assert.doesNotMatch(
 
 const oneShot=body(
   review,
-  'h3P4AcceptanceProspectiveReviewAudioOneShot',
+  'h3P4AcceptanceProspectiveReviewAudioOneShot()',
   'h3ReviewAudioGeneratePlannedR2Asset_'
 );
 assert.match(oneShot,/H3-20260921-R001/);
