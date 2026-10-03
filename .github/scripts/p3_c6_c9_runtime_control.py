@@ -132,10 +132,8 @@ def main() -> None:
                 "FIRST_RECEIPT_VALIDATION",
                 "SECOND_RECEIPT_CALL",
                 "SECOND_RECEIPT_VALIDATION",
-                "R2_RECEIPT_WRITE",
                 "REQUIESCE",
                 "FINAL_STATE",
-                "RUNTIME_RPC_OR_MEDIA",
                 "UNCLASSIFIED",
             }
             allowed_prefixes = (
