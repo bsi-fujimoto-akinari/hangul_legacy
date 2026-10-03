@@ -654,6 +654,9 @@ function h3ReviewAudioPlanForSet_(ss,family,setId){
 }
 
 function h3ReviewAudioBuildHistoricalPlan_(){
+  h3P4AcceptanceOneShotSetDiagnosticStage_(
+    'PLAN_OR_BINDING_PREFLIGHT'
+  );
   var ss=h3ReviewAudioRuntimeSpreadsheet_();
   var t=h3ReviewAudioTable_(ss.getSheetByName('review_home_index_v1'));
   var fi=t.map.SURFACE_FAMILY,si=t.map.SET_ID,sti=t.map.STATUS,sets=[];
@@ -967,52 +970,54 @@ function h3P4AcceptanceOneShotDiagnosticCode_(error){
   })?code:'P4_ACCEPTANCE_ONE_SHOT_UNCLASSIFIED';
 }
 
-function h3P4AcceptanceOneShotDiagnosticStage_(code){
-  var value=String(code||'');
-  if(value==='P4_ACCEPTANCE_ONE_SHOT_WRITER_PREFLIGHT_INVALID'){
-    return 'WRITER_PREFLIGHT';
+var H3_P4_ACCEPTANCE_ONE_SHOT_DIAGNOSTIC_STAGE_='UNCLASSIFIED';
+
+function h3P4AcceptanceOneShotDiagnosticStageAllowed_(stage){
+  return[
+    'WRITER_PREFLIGHT',
+    'PLAN_OR_BINDING_PREFLIGHT',
+    'R2_PREFLIGHT',
+    'DRIVE_PREFLIGHT',
+    'WRITER_SWITCH',
+    'FIRST_RECEIPT_CALL',
+    'FIRST_RECEIPT_VALIDATION',
+    'SECOND_RECEIPT_CALL',
+    'SECOND_RECEIPT_VALIDATION',
+    'REQUIESCE',
+    'FINAL_STATE',
+    'UNCLASSIFIED'
+  ].indexOf(String(stage||''))>=0;
+}
+
+function h3P4AcceptanceOneShotSetDiagnosticStage_(stage){
+  var value=String(stage||'');
+  if(!h3P4AcceptanceOneShotDiagnosticStageAllowed_(value)){
+    throw new Error('P4_ACCEPTANCE_ONE_SHOT_DIAGNOSTIC_STAGE_INVALID');
   }
-  if(
-    value==='P4_ACCEPTANCE_ONE_SHOT_PLAN_INVALID' ||
-    value==='P4_ACCEPTANCE_ONE_SHOT_PLAN_IDENTITY_MISMATCH' ||
-    value.indexOf('REVIEW_AUDIO_')===0
-  )return 'PLAN_OR_BINDING_PREFLIGHT';
-  if(
-    value==='P4_ACCEPTANCE_ONE_SHOT_R2_PREFLIGHT_MISMATCH' ||
-    value.indexOf('MEDIA_')===0
-  )return 'R2_PREFLIGHT';
-  if(value.indexOf('P4_ACCEPTANCE_ONE_SHOT_DRIVE_')===0){
-    return 'DRIVE_PREFLIGHT';
-  }
-  if(
-    value==='P4_ACCEPTANCE_ONE_SHOT_SWITCH_INVALID' ||
-    value.indexOf('P4_ASSET_WRITER_R2_PRIMARY_')===0
-  )return 'WRITER_SWITCH';
-  if(value==='P4_ACCEPTANCE_ONE_SHOT_FIRST_RECEIPT_INVALID'){
-    return 'FIRST_RECEIPT_VALIDATION';
-  }
-  if(value==='P4_ACCEPTANCE_ONE_SHOT_IDEMPOTENCY_MISMATCH'){
-    return 'SECOND_RECEIPT_VALIDATION';
-  }
-  if(value.indexOf('R2_PRIMARY_')===0)return 'R2_RECEIPT_WRITE';
-  if(value.indexOf('P4_ACCEPTANCE_ONE_SHOT_REQUIESCE_')===0){
-    return 'REQUIESCE';
-  }
-  if(value==='P4_ACCEPTANCE_ONE_SHOT_FINAL_STATE_INVALID'){
-    return 'FINAL_STATE';
-  }
-  if(value.indexOf('H3_RUNTIME_')===0)return 'RUNTIME_RPC_OR_MEDIA';
-  return 'UNCLASSIFIED';
+  H3_P4_ACCEPTANCE_ONE_SHOT_DIAGNOSTIC_STAGE_=value;
+  return value;
+}
+
+function h3P4AcceptanceOneShotDiagnosticStage_(){
+  var value=String(
+    H3_P4_ACCEPTANCE_ONE_SHOT_DIAGNOSTIC_STAGE_||''
+  );
+  return h3P4AcceptanceOneShotDiagnosticStageAllowed_(value)
+    ? value
+    : 'UNCLASSIFIED';
 }
 
 function h3P4AcceptanceProspectiveReviewAudioOneShotDiagnostic(){
+  h3P4AcceptanceOneShotSetDiagnosticStage_('WRITER_PREFLIGHT');
   try{
     return h3P4AcceptanceProspectiveReviewAudioOneShot();
   }catch(error){
     var code=h3P4AcceptanceOneShotDiagnosticCode_(error);
-    var stage=h3P4AcceptanceOneShotDiagnosticStage_(code);
+    var stage=h3P4AcceptanceOneShotDiagnosticStage_();
+    h3P4AcceptanceOneShotSetDiagnosticStage_('REQUIESCE');
     var cleanup=h3P4AssetWriterRequiesceFromR2Primary();
-    var after=h3P4AssetWriterStatus();
+    h3P4AcceptanceOneShotSetDiagnosticStage_('FINAL_STATE');
+  var after=h3P4AssetWriterStatus();
     if(
       !cleanup ||
       cleanup.schema!=='H3_P4_ASSET_WRITER_CONTROL_V1' ||
@@ -1051,6 +1056,7 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
     drive_folder_id:'18V3zOrKRhIgTCL_McrXjWDu6OIZupNn5'
   };
   var expectedFallbackTriggerCount=1;
+  h3P4AcceptanceOneShotSetDiagnosticStage_('WRITER_PREFLIGHT');
   var before=h3P4AssetWriterStatus();
   if(
     before.mode!==H3_P4_ASSET_WRITER_QUIESCED_ ||
@@ -1087,6 +1093,7 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
     set_id:target.set_id,
     slot_key:target.slot_key
   };
+  h3P4AcceptanceOneShotSetDiagnosticStage_('R2_PREFLIGHT');
   var r2=h3RuntimePrivateMediaRequest_(
     'REVIEW_AUDIO',identity,'',target.size_bytes
   );
@@ -1099,6 +1106,7 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
     'P4_ACCEPTANCE_ONE_SHOT_R2_PREFLIGHT_MISMATCH'
   );
 
+  h3P4AcceptanceOneShotSetDiagnosticStage_('DRIVE_PREFLIGHT');
   var source=DriveApp.getFileById(target.source_file_id);
   if(
     source.isTrashed() ||
@@ -1149,8 +1157,10 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
   var first=null;
   var second=null;
   var failure=null;
+  var failureStage='UNCLASSIFIED';
   var requiesced=null;
   try{
+    h3P4AcceptanceOneShotSetDiagnosticStage_('WRITER_SWITCH');
     switched=h3P4AssetWriterSwitchToR2Primary();
     if(
       switched.before!==H3_P4_ASSET_WRITER_QUIESCED_ ||
@@ -1159,7 +1169,11 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
     )throw new Error(
       'P4_ACCEPTANCE_ONE_SHOT_SWITCH_INVALID'
     );
+    h3P4AcceptanceOneShotSetDiagnosticStage_('FIRST_RECEIPT_CALL');
     first=h3RuntimeAssetWriteR2_(request);
+    h3P4AcceptanceOneShotSetDiagnosticStage_(
+      'FIRST_RECEIPT_VALIDATION'
+    );
     if(
       first.schema!=='H3_R2_PRIMARY_ASSET_WRITE_RECEIPT_V1' ||
       first.status!=='COMMITTED' ||
@@ -1171,7 +1185,11 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
     )throw new Error(
       'P4_ACCEPTANCE_ONE_SHOT_FIRST_RECEIPT_INVALID'
     );
+    h3P4AcceptanceOneShotSetDiagnosticStage_('SECOND_RECEIPT_CALL');
     second=h3RuntimeAssetWriteR2_(request);
+    h3P4AcceptanceOneShotSetDiagnosticStage_(
+      'SECOND_RECEIPT_VALIDATION'
+    );
     if(
       JSON.stringify(first)!==JSON.stringify(second)
     )throw new Error(
@@ -1179,8 +1197,10 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
     );
   }catch(error){
     failure=error;
+    failureStage=h3P4AcceptanceOneShotDiagnosticStage_();
   }
 
+  h3P4AcceptanceOneShotSetDiagnosticStage_('REQUIESCE');
   try{
     requiesced=h3P4AssetWriterRequiesceFromR2Primary();
   }catch(error){
@@ -1199,7 +1219,10 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
   )throw new Error(
     'P4_ACCEPTANCE_ONE_SHOT_FINAL_STATE_INVALID'
   );
-  if(failure)throw failure;
+  if(failure){
+    h3P4AcceptanceOneShotSetDiagnosticStage_(failureStage);
+    throw failure;
+  }
 
   return{
     schema:'H3_MIG_ASSET_PROSPECTIVE_ONE_SHOT_V1',
