@@ -292,6 +292,10 @@ assert.match(
   diagnosticWrapper,
   /h3P4AcceptanceOneShotSetDiagnosticStage_\('REQUIESCE'\)/
 );
+assert.doesNotMatch(
+  diagnosticWrapper,
+  /PropertiesService|setProperty|getProperty/
+);
 
 const oneShot=body(
   review,
