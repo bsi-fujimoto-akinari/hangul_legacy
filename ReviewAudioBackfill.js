@@ -654,7 +654,6 @@ function h3ReviewAudioPlanForSet_(ss,family,setId){
 }
 
 function h3ReviewAudioBuildHistoricalPlan_(){
-  h3P4AcceptanceOneShotSetDiagnosticStage_('PLAN_OR_BINDING_PREFLIGHT');
   var ss=h3ReviewAudioRuntimeSpreadsheet_();
   var t=h3ReviewAudioTable_(ss.getSheetByName('review_home_index_v1'));
   var fi=t.map.SURFACE_FAMILY,si=t.map.SET_ID,sti=t.map.STATUS,sets=[];
@@ -1065,6 +1064,7 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
     'P4_ACCEPTANCE_ONE_SHOT_WRITER_PREFLIGHT_INVALID'
   );
 
+  h3P4AcceptanceOneShotSetDiagnosticStage_('PLAN_OR_BINDING_PREFLIGHT');
   var ss=h3ReviewAudioRuntimeSpreadsheet_();
   var plans=h3ReviewAudioPlanForSet_(
     ss,target.surface_family,target.set_id
@@ -1203,6 +1203,7 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
     );
   }
 
+  h3P4AcceptanceOneShotSetDiagnosticStage_('FINAL_STATE');
   var after=h3P4AssetWriterStatus();
   if(
     after.mode!==H3_P4_ASSET_WRITER_QUIESCED_ ||
