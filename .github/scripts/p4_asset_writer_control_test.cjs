@@ -209,6 +209,16 @@ assert.match(body(code,'processLatestPendingAudioJob','idle_'),/h3P4AssetWriterR
 const diagnosticCode=body(
   review,
   'h3P4AcceptanceOneShotDiagnosticCode_',
+  'h3P4AcceptanceOneShotDiagnosticStageAllowed_'
+);
+const diagnosticStageAllowed=body(
+  review,
+  'h3P4AcceptanceOneShotDiagnosticStageAllowed_',
+  'h3P4AcceptanceOneShotSetDiagnosticStage_'
+);
+const diagnosticSetStage=body(
+  review,
+  'h3P4AcceptanceOneShotSetDiagnosticStage_',
   'h3P4AcceptanceOneShotDiagnosticStage_'
 );
 const diagnosticStage=body(
@@ -222,9 +232,16 @@ const diagnosticWrapper=body(
   'h3P4AcceptanceProspectiveReviewAudioOneShot'
 );
 const diagnosticContext=vm.createContext({
-  String,Array,Error,RegExp
+  String,Array,Error,RegExp,
+  H3_P4_ACCEPTANCE_ONE_SHOT_DIAGNOSTIC_STAGE_:'UNCLASSIFIED'
 });
-vm.runInContext(diagnosticCode+diagnosticStage,diagnosticContext);
+vm.runInContext(
+  diagnosticCode+
+  diagnosticStageAllowed+
+  diagnosticSetStage+
+  diagnosticStage,
+  diagnosticContext
+);
 assert.equal(
   diagnosticContext.h3P4AcceptanceOneShotDiagnosticCode_(
     new Error('R2_PRIMARY_WRITER_ENV_INVALID')
@@ -238,16 +255,20 @@ assert.equal(
   'P4_ACCEPTANCE_ONE_SHOT_UNCLASSIFIED'
 );
 assert.equal(
-  diagnosticContext.h3P4AcceptanceOneShotDiagnosticStage_(
-    'R2_PRIMARY_LOGICAL_BINDING_CONFLICT'
+  diagnosticContext.h3P4AcceptanceOneShotSetDiagnosticStage_(
+    'FIRST_RECEIPT_CALL'
   ),
-  'R2_RECEIPT_WRITE'
+  'FIRST_RECEIPT_CALL'
 );
 assert.equal(
-  diagnosticContext.h3P4AcceptanceOneShotDiagnosticStage_(
-    'P4_ACCEPTANCE_ONE_SHOT_DRIVE_HASH_MISMATCH'
+  diagnosticContext.h3P4AcceptanceOneShotDiagnosticStage_(),
+  'FIRST_RECEIPT_CALL'
+);
+assert.throws(
+  ()=>diagnosticContext.h3P4AcceptanceOneShotSetDiagnosticStage_(
+    'SECRET_OR_ARBITRARY_STAGE'
   ),
-  'DRIVE_PREFLIGHT'
+  /P4_ACCEPTANCE_ONE_SHOT_DIAGNOSTIC_STAGE_INVALID/
 );
 assert.match(
   diagnosticWrapper,
@@ -263,6 +284,14 @@ assert.match(
 );
 assert.doesNotMatch(diagnosticWrapper,/error\.message/);
 assert.doesNotMatch(diagnosticWrapper,/diagnostic_message/);
+assert.match(
+  diagnosticWrapper,
+  /var stage=h3P4AcceptanceOneShotDiagnosticStage_\(\)/
+);
+assert.match(
+  diagnosticWrapper,
+  /h3P4AcceptanceOneShotSetDiagnosticStage_\('REQUIESCE'\)/
+);
 
 const oneShot=body(
   review,
@@ -277,6 +306,36 @@ assert.match(
   /ce0a44fa94997affd15017c62ac9353702d115e9481037cff79e8ca9f3f83826/
 );
 assert.match(oneShot,/expectedFallbackTriggerCount=1/);
+const oneShotStages=[
+  'WRITER_PREFLIGHT',
+  'PLAN_OR_BINDING_PREFLIGHT',
+  'R2_PREFLIGHT',
+  'DRIVE_PREFLIGHT',
+  'WRITER_SWITCH',
+  'FIRST_RECEIPT_CALL',
+  'FIRST_RECEIPT_VALIDATION',
+  'SECOND_RECEIPT_CALL',
+  'SECOND_RECEIPT_VALIDATION',
+  'REQUIESCE',
+  'FINAL_STATE'
+];
+let oneShotStageIndex=-1;
+oneShotStages.forEach(stage=>{
+  const index=oneShot.indexOf(
+    "h3P4AcceptanceOneShotSetDiagnosticStage_('"+stage+"')"
+  );
+  assert.ok(index>oneShotStageIndex,'stage order '+stage);
+  oneShotStageIndex=index;
+});
+assert.match(oneShot,/var failureStage='UNCLASSIFIED'/);
+assert.match(
+  oneShot,
+  /failureStage=h3P4AcceptanceOneShotDiagnosticStage_\(\)/
+);
+assert.match(
+  oneShot,
+  /h3P4AcceptanceOneShotSetDiagnosticStage_\(failureStage\)/
+);
 assert.match(
   oneShot,
   /before\.fallback_trigger_count!==expectedFallbackTriggerCount/
