@@ -654,9 +654,7 @@ function h3ReviewAudioPlanForSet_(ss,family,setId){
 }
 
 function h3ReviewAudioBuildHistoricalPlan_(){
-  h3P4AcceptanceOneShotSetDiagnosticStage_(
-    'PLAN_OR_BINDING_PREFLIGHT'
-  );
+  h3P4AcceptanceOneShotSetDiagnosticStage_('PLAN_OR_BINDING_PREFLIGHT');
   var ss=h3ReviewAudioRuntimeSpreadsheet_();
   var t=h3ReviewAudioTable_(ss.getSheetByName('review_home_index_v1'));
   var fi=t.map.SURFACE_FAMILY,si=t.map.SET_ID,sti=t.map.STATUS,sets=[];
@@ -1171,9 +1169,7 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
     );
     h3P4AcceptanceOneShotSetDiagnosticStage_('FIRST_RECEIPT_CALL');
     first=h3RuntimeAssetWriteR2_(request);
-    h3P4AcceptanceOneShotSetDiagnosticStage_(
-      'FIRST_RECEIPT_VALIDATION'
-    );
+    h3P4AcceptanceOneShotSetDiagnosticStage_('FIRST_RECEIPT_VALIDATION');
     if(
       first.schema!=='H3_R2_PRIMARY_ASSET_WRITE_RECEIPT_V1' ||
       first.status!=='COMMITTED' ||
@@ -1187,9 +1183,7 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
     );
     h3P4AcceptanceOneShotSetDiagnosticStage_('SECOND_RECEIPT_CALL');
     second=h3RuntimeAssetWriteR2_(request);
-    h3P4AcceptanceOneShotSetDiagnosticStage_(
-      'SECOND_RECEIPT_VALIDATION'
-    );
+    h3P4AcceptanceOneShotSetDiagnosticStage_('SECOND_RECEIPT_VALIDATION');
     if(
       JSON.stringify(first)!==JSON.stringify(second)
     )throw new Error(
