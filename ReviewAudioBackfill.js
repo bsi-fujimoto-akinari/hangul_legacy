@@ -972,7 +972,9 @@ var H3_P4_ACCEPTANCE_ONE_SHOT_DIAGNOSTIC_STAGE_='UNCLASSIFIED';
 function h3P4AcceptanceOneShotDiagnosticStageAllowed_(stage){
   return[
     'WRITER_PREFLIGHT',
-    'PLAN_OR_BINDING_PREFLIGHT',
+    'SPREADSHEET_OPEN',
+    'PLAN_BUILD',
+    'ASSET_SHEET_READBACK',
     'R2_PREFLIGHT',
     'DRIVE_PREFLIGHT',
     'WRITER_SWITCH',
@@ -1064,8 +1066,9 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
     'P4_ACCEPTANCE_ONE_SHOT_WRITER_PREFLIGHT_INVALID'
   );
 
-  h3P4AcceptanceOneShotSetDiagnosticStage_('PLAN_OR_BINDING_PREFLIGHT');
+  h3P4AcceptanceOneShotSetDiagnosticStage_('SPREADSHEET_OPEN');
   var ss=h3ReviewAudioRuntimeSpreadsheet_();
+  h3P4AcceptanceOneShotSetDiagnosticStage_('PLAN_BUILD');
   var plans=h3ReviewAudioPlanForSet_(
     ss,target.surface_family,target.set_id
   ).filter(function(item){
@@ -1082,6 +1085,7 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
     'P4_ACCEPTANCE_ONE_SHOT_PLAN_IDENTITY_MISMATCH'
   );
 
+  h3P4AcceptanceOneShotSetDiagnosticStage_('ASSET_SHEET_READBACK');
   var sheet=h3ReviewAudioAssetSheet_(ss);
   var row=h3ReviewAudioFindAssetRow_(sheet,plan);
   h3ReviewAudioAssertR2AssetRow_(row,plan);

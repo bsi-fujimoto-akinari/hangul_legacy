@@ -310,9 +310,24 @@ assert.match(
   /ce0a44fa94997affd15017c62ac9353702d115e9481037cff79e8ca9f3f83826/
 );
 assert.match(oneShot,/expectedFallbackTriggerCount=1/);
+assert.doesNotMatch(oneShot,/PLAN_OR_BINDING_PREFLIGHT/);
+assert.ok(
+  oneShot.indexOf("h3P4AcceptanceOneShotSetDiagnosticStage_('SPREADSHEET_OPEN')") <
+  oneShot.indexOf('var ss=h3ReviewAudioRuntimeSpreadsheet_()')
+);
+assert.ok(
+  oneShot.indexOf("h3P4AcceptanceOneShotSetDiagnosticStage_('PLAN_BUILD')") <
+  oneShot.indexOf('var plans=h3ReviewAudioPlanForSet_(')
+);
+assert.ok(
+  oneShot.indexOf("h3P4AcceptanceOneShotSetDiagnosticStage_('ASSET_SHEET_READBACK')") <
+  oneShot.indexOf('var sheet=h3ReviewAudioAssetSheet_(ss)')
+);
 const oneShotStages=[
   'WRITER_PREFLIGHT',
-  'PLAN_OR_BINDING_PREFLIGHT',
+  'SPREADSHEET_OPEN',
+  'PLAN_BUILD',
+  'ASSET_SHEET_READBACK',
   'R2_PREFLIGHT',
   'DRIVE_PREFLIGHT',
   'WRITER_SWITCH',

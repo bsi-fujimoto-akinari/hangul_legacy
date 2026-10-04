@@ -128,6 +128,9 @@ required_c6_c9_helper = [
     'expected_fallback_trigger_count = 1',
     'P4_PROSPECTIVE_ONE_SHOT_DIAGNOSTIC_STAGE=',
     'P4_PROSPECTIVE_ONE_SHOT_DIAGNOSTIC_CODE=',
+    '"SPREADSHEET_OPEN"',
+    '"PLAN_BUILD"',
+    '"ASSET_SHEET_READBACK"',
     '"FIRST_RECEIPT_CALL"',
     '"SECOND_RECEIPT_CALL"',
     'ensure_requiesced',
@@ -194,6 +197,9 @@ required_one_shot_review = [
     'H3_MIG_ASSET_PROSPECTIVE_ONE_SHOT_DIAGNOSTIC_V1',
     'P4_ACCEPTANCE_ONE_SHOT_UNCLASSIFIED',
     'P4_ACCEPTANCE_ONE_SHOT_DIAGNOSTIC_CLEANUP_INVALID',
+    "'SPREADSHEET_OPEN'",
+    "'PLAN_BUILD'",
+    "'ASSET_SHEET_READBACK'",
     "'FIRST_RECEIPT_CALL'",
     "'FIRST_RECEIPT_VALIDATION'",
     "'SECOND_RECEIPT_CALL'",
@@ -233,6 +239,20 @@ if review_audio.count('h3RuntimeAssetWriteR2_(request)') < 2:
     raise SystemExit(
         'P4 prospective one-shot must execute the exact receipt path twice.'
     )
+
+if "'PLAN_OR_BINDING_PREFLIGHT'" in review_audio:
+    raise SystemExit(
+        'P4 prospective diagnostic must split the broad plan/binding stage.'
+    )
+for token in [
+    "h3P4AcceptanceOneShotSetDiagnosticStage_('SPREADSHEET_OPEN')",
+    "h3P4AcceptanceOneShotSetDiagnosticStage_('PLAN_BUILD')",
+    "h3P4AcceptanceOneShotSetDiagnosticStage_('ASSET_SHEET_READBACK')",
+]:
+    if token not in review_audio:
+        raise SystemExit(
+            'P4 prospective fine-grained preflight marker missing: ' + token
+        )
 
 if 'diagnostic_message' in review_audio:
     raise SystemExit(

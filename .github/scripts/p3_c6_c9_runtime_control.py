@@ -124,7 +124,9 @@ def main() -> None:
             diagnostic_code = str(result.get("diagnostic_code") or "")
             allowed_stages = {
                 "WRITER_PREFLIGHT",
-                "PLAN_OR_BINDING_PREFLIGHT",
+                "SPREADSHEET_OPEN",
+                "PLAN_BUILD",
+                "ASSET_SHEET_READBACK",
                 "R2_PREFLIGHT",
                 "DRIVE_PREFLIGHT",
                 "WRITER_SWITCH",
