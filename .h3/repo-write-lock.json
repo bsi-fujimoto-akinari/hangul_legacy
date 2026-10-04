@@ -1,12 +1,5 @@
 {
   "schema": "H3_REPO_WRITE_LOCK_V1",
   "repository": "bsi-fujimoto-akinari/hangul_legacy",
-  "lock": {
-    "lock_id": "MIG-ASSET-HANDOFF-SYNC-LEGACY-20261004T004439Z",
-    "lease_set_id": "MIG-ASSET-HANDOFF-SYNC-20261004T004439Z",
-    "holder": "NORMAL_CHAT_GITHUB_CONNECTOR",
-    "base_sha": "8a89db69731a68d586c36ecdb2a6d57f1d3fda94",
-    "acquired_at": "2026-10-04T00:44:39Z",
-    "expires_at": "2026-10-04T00:59:39Z"
-  }
+  "lock": null
 }
