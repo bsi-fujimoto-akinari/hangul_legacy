@@ -1059,12 +1059,19 @@ identity `2R / H3-20260921-R001 / PASSAGE_COMPLETE`.
 
 The wrapper `h3P4AcceptanceProspectiveReviewAudioOneShot()` must begin with
 the asset writer in `QUIESCED` and with the frozen baseline fallback trigger count `1`. Before
-any writer-mode mutation it must verify the existing `DONE_R2` binding,
-fresh-read the exact private R2 object, and verify the frozen retained Drive
-source bytes, size, MIME, parent folder, and SHA-256. The exact source identity
+any writer-mode mutation it must verify the frozen historical Drive-backed
+`DONE` binding against the exact source file, folder, payload hash, generator,
+and nonblank URL; fresh-read the exact private R2 object; and verify the frozen
+retained Drive source URL, bytes, size, MIME, parent folder, and SHA-256. The exact source identity
 is file `1T2NtwcwPpp0kIymvow-EZbPEkWc-5nzH`, byte SHA-256
 `ce0a44fa94997affd15017c62ac9353702d115e9481037cff79e8ca9f3f83826`,
 size 652800, MIME `audio/mpeg`.
+
+This receipt-only acceptance control must not rewrite the historical Sheet row
+to `DONE_R2`. The receipt keeps the frozen rollback descriptor
+`expected_r2_state=STATUS=DONE_R2;AUDIO_FILE_ID=;AUDIO_URL=;DRIVE_FOLDER_ID=`
+for a real post-R2 reversal. Reverse-copy separately treats an already exact
+Drive-backed `DONE` binding as idempotently restored.
 
 Only after those checks may it perform the temporary
 `QUIESCED -> R2_PRIMARY` transition. It invokes the existing authenticated

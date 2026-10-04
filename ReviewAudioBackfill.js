@@ -949,9 +949,40 @@ function h3ReviewAudioAssertR2AssetRow_(row,plan){
   return true;
 }
 
+function h3P4AcceptanceAssertHistoricalDriveAssetRow_(row,plan,target){
+  if(!row){
+    throw new Error(
+      'P4_ACCEPTANCE_ONE_SHOT_HISTORICAL_BINDING_MISSING'
+    );
+  }
+  var get=function(name){
+    return String(row.row[row.map[name]]||'');
+  };
+  if(
+    get('SCHEMA')!==H3_REVIEW_AUDIO_SCHEMA_ ||
+    get('SURFACE_FAMILY')!==plan.surface_family ||
+    get('SET_ID')!==plan.set_id ||
+    get('SLOT_KEY')!==plan.slot_key ||
+    get('STATUS')!=='DONE' ||
+    get('ERROR') ||
+    get('GENERATOR_VERSION')!==
+      H3_REVIEW_AUDIO_GENERATOR_VERSION_ ||
+    get('AUDIO_TEXT_SHA256')!==
+      plan.audio_text_sha256 ||
+    get('AUDIO_FILE_ID')!==target.source_file_id ||
+    !get('AUDIO_URL') ||
+    get('DRIVE_FOLDER_ID')!==target.drive_folder_id
+  ){
+    throw new Error(
+      'P4_ACCEPTANCE_ONE_SHOT_HISTORICAL_BINDING_INVALID'
+    );
+  }
+  return{audio_url:get('AUDIO_URL')};
+}
+
 function h3P4AcceptanceOneShotDiagnosticCode_(error){
   var raw=String(error&&error.message||'');
-  var match=/^([A-Z0-9_]+)(?::[A-Z0-9_]+)?$/.exec(raw);
+  var match=/^([A-Z0-9_]+)(?::.*)?$/.exec(raw);
   if(!match)return 'P4_ACCEPTANCE_ONE_SHOT_UNCLASSIFIED';
   var code=match[1];
   var prefixes=[
@@ -1088,7 +1119,10 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
   h3P4AcceptanceOneShotSetDiagnosticStage_('ASSET_SHEET_READBACK');
   var sheet=h3ReviewAudioAssetSheet_(ss);
   var row=h3ReviewAudioFindAssetRow_(sheet,plan);
-  h3ReviewAudioAssertR2AssetRow_(row,plan);
+  var historicalBinding=
+    h3P4AcceptanceAssertHistoricalDriveAssetRow_(
+      row,plan,target
+    );
 
   var identity={
     surface_family:target.surface_family,
@@ -1112,6 +1146,7 @@ function h3P4AcceptanceProspectiveReviewAudioOneShot(){
   var source=DriveApp.getFileById(target.source_file_id);
   if(
     source.isTrashed() ||
+    source.getUrl()!==historicalBinding.audio_url ||
     source.getMimeType()!==target.mime_type ||
     source.getSize()!==target.size_bytes
   )throw new Error(
