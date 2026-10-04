@@ -619,35 +619,7 @@ jobs:
             cat "$out"
             exit "$status"
           fi
-          python3 - "$out" "$SOURCE_SHA" "$SOURCE_DIGEST" "$SOURCE_FILE_COUNT" <<'PY'
-          import json
-          import sys
-
-          envelope = json.loads(open(sys.argv[1], encoding='utf-8').read())
-          if envelope.get('error'):
-              raise SystemExit('Observability source binding returned an Apps Script error envelope.')
-          result = envelope.get('response')
-          if not isinstance(result, dict):
-              raise SystemExit('Observability source binding response is not an object.')
-          expected = {
-              'schema': 'H3_OBSERVABILITY_SOURCE_BINDING_RESULT_V1',
-              'status': 'PASS',
-              'source_sha': sys.argv[2],
-              'source_digest': sys.argv[3],
-              'source_file_count': int(sys.argv[4]),
-          }
-          for key, value in expected.items():
-              if result.get(key) != value:
-                  raise SystemExit(
-                      f'Observability source binding readback mismatch for {key}: '
-                      f'{result.get(key)!r} != {value!r}'
-                  )
-          print(
-              'Observability source binding PASS: '
-              f"sha={result['source_sha']}; digest={result['source_digest']}; "
-              f"files={result['source_file_count']}"
-          )
-          PY
+          python3 .github/scripts/clasp_source_binding_validate.py "$out" "$SOURCE_SHA" "$SOURCE_DIGEST" "$SOURCE_FILE_COUNT" "$err"
 
       - name: Validate production trigger alignment boundary
         id: trigger_alignment_boundary
