@@ -302,6 +302,7 @@ for helper_path in sorted(Path('.github/scripts').glob('*')):
         alignment_helper_path,
         c6_c9_helper_path,
         rem09_d4_helper_path,
+        owner_snapshot_helper_path,
     } or not helper_path.is_file():
         continue
     try:
@@ -325,6 +326,11 @@ for t in ['H3_DELETE_ONLY_SYNC_REFRESH','git diff --exit-code -- "$marker_file"'
         raise SystemExit('Delete-only sync guard missing: '+t)
 
 required_owner_snapshot_helper = [
+    'h3MonitoringProductionTriggerStatus',
+    'PROVIDER_MANUAL_EXACT_SHA_GUARD_INVALID',
+    'PROVIDER_TRIGGER_WRITE_INVALID',
+    'H3_BRG_STEP7_LEGACY_PROVIDER_READBACK_V1',
+    'full_provider_parity_accepted',
     'H3_BRG_MONITOR_OWNER_SNAPSHOT_EVIDENCE_V1',
     'H3-MONITOR-OWNER-LEVEL-TRANSPORT-20261004-V1',
     'SOURCE_LEVEL = "3級"',
