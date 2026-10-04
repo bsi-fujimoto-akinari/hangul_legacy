@@ -1,11 +1,5 @@
 {
   "schema": "H3_REPO_WRITE_LOCK_V1",
   "repository": "bsi-fujimoto-akinari/hangul_legacy",
-  "lock": {
-    "lock_id": "WORK-BRGOBS7-MERGE358-20261005",
-    "holder": "WORK",
-    "base_sha": "921e150caf53a0afef310dd4850a354581d7aac4",
-    "acquired_at": "2026-10-04T23:03:37.535Z",
-    "expires_at": "2026-10-04T23:06:37.535Z"
-  }
+  "lock": null
 }
