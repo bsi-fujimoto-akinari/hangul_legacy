@@ -118,6 +118,7 @@ allowed = {
     '.github/scripts/p4_asset_reverse_copy_test.cjs',
     '.github/scripts/production_trigger_alignment.py',
     '.github/scripts/apps_script_execution_boundary_audit.py',
+    '.github/scripts/brg_monitor_owner_snapshot_validate.py',
     '.github/scripts/p3_c1_runtime_control.py',
     '.github/scripts/p3_c6_c9_runtime_control.py',
     '.github/scripts/p3_c6_c9_runtime_control_test.cjs',

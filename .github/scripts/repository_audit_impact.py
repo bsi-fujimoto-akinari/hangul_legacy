@@ -191,7 +191,9 @@ DEPENDENCIES = json.loads(r'''{
     ".github/workflows/apps-script-auto-sync.yml",
     "OPERATIONS.md",
     ".github/scripts/apps_script_execution_boundary_audit.py",
+    ".github/scripts/brg_monitor_owner_snapshot_validate.py",
     ".github/scripts/production_trigger_alignment.py",
+    "H3_LEVEL_RUNTIME_CONTRACT.md",
     "WebAppFamilyScheduler.js"
   ],
   "Audit automatic read-only live smoke contract": [

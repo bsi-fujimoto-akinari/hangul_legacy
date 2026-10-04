@@ -50,6 +50,14 @@ on:
           - "NONE"
           - "H3-20260914-02"
           - "H3-20260914-04"
+      brg_monitor_owner_snapshot:
+        description: "BRG Monitor one-revision read-only owner snapshot evidence"
+        required: false
+        default: "NONE"
+        type: choice
+        options:
+          - "NONE"
+          - "AUTHORIZE_BRG_MONITOR_OWNER_SNAPSHOT_READONLY"
 
 permissions:
   contents: read
@@ -879,6 +887,26 @@ jobs:
       # smoke_boundary and gated by:
       #   if: steps.smoke_boundary.outputs.ready == 'true'
       # Repository audit rejects run-function usage that does not use this boundary.
+
+      - name: Capture BRG Monitor owner snapshot read-only
+        if: steps.smoke_boundary.outputs.ready == 'true' && github.event.inputs.brg_monitor_owner_snapshot == 'AUTHORIZE_BRG_MONITOR_OWNER_SNAPSHOT_READONLY'
+        shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          MIGRATION_RUNTIME_CONTROL: ${{ github.event.inputs.migration_runtime_control || 'NONE' }}
+          MIG_ASSET_ACCEPTANCE_2: ${{ github.event.inputs.mig_asset_acceptance_2 || 'NONE' }}
+          REM09_VALIDATION: ${{ github.event.inputs.rem09_review_open_validation || 'NO' }}
+          REM09_REPAIR: ${{ github.event.inputs.rem09_d4_audio_parity_repair || 'NONE' }}
+        run: npx -y @google/clasp@3.4.0 --json run-function h3MonitoringObserverPreview > /tmp/brg-monitor-owner-snapshot-clasp.json && python3 .github/scripts/brg_monitor_owner_snapshot_validate.py validate /tmp/brg-monitor-owner-snapshot-clasp.json /tmp/brg-monitor-owner-snapshot-evidence.json "$SOURCE_SHA" "$MIGRATION_RUNTIME_CONTROL" "$MIG_ASSET_ACCEPTANCE_2" "$REM09_VALIDATION" "$REM09_REPAIR"
+
+      - name: Upload BRG Monitor owner snapshot evidence
+        if: steps.smoke_boundary.outputs.ready == 'true' && github.event.inputs.brg_monitor_owner_snapshot == 'AUTHORIZE_BRG_MONITOR_OWNER_SNAPSHOT_READONLY'
+        uses: actions/upload-artifact@v4
+        with:
+          name: brg-monitor-owner-snapshot-${{ steps.source.outputs.sha }}
+          path: /tmp/brg-monitor-owner-snapshot-evidence.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Validate MIG-ASSET-ACCEPTANCE-2 bounded request fixture
         if: steps.smoke_boundary.outputs.ready == 'true' && github.event.inputs.mig_asset_acceptance_2 == 'AUTHORIZE_MIG_ASSET_ACCEPTANCE_2_READONLY'

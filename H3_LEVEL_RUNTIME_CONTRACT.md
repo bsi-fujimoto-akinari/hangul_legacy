@@ -143,3 +143,29 @@ This phase does not:
 - change 5W/5L ratios, pointers, history or retest state;
 - change Review/HOME data;
 - issue any learner question.
+
+
+## 12. Monitor owner-projection transport compatibility
+
+Compatibility rider: `H3-MONITOR-OWNER-LEVEL-TRANSPORT-20261004-V1`.
+
+This rider does not change the canonical legacy persistent runtime labels in section 2. Legacy Apps Script and Spreadsheet state continue to use `3級` and `準2級`.
+
+For the BRG Monitor owner-projection transport boundary only, the following one-way compatibility mapping is permitted:
+
+```text
+legacy owner source level: 3級
+Cloudflare Monitor projection level: 3급
+```
+
+The mapping is valid only when all of the following hold:
+
+- the source is the exact read-only `h3MonitoringObserverPreview()` owner snapshot;
+- the snapshot level and Semantic Authoring health level are both exactly `3級`;
+- the original owner payload is preserved unchanged in immutable evidence;
+- the derived runtime projection request changes only the level representation required by the frozen Monitor projection contract;
+- the evidence records both `source_level=3級` and `runtime_projection_level=3급`;
+- no legacy Sheet, queue, learner state, scheduler state, or source payload is rewritten;
+- no reverse mapping, general Korean-alias normalization, or cross-level state transfer is implied.
+
+Any other source label, target label, or transformation fails closed. This is a transport compatibility adapter, not a change to legacy level authority.

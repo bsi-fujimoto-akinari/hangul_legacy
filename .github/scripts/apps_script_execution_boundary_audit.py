@@ -11,6 +11,7 @@ rem09_d4_helper_path = Path('.github/scripts/rem09_d4_audio_parity_repair.py')
 runtime_path = Path('WebAppCloudflareRuntime.js')
 review_audio_path = Path('ReviewAudioBackfill.js')
 writer_control_path = Path('P4AssetWriterControl.js')
+owner_snapshot_helper_path = Path('.github/scripts/brg_monitor_owner_snapshot_validate.py')
 sync = sync_path.read_text(encoding='utf-8')
 ops = ops_path.read_text(encoding='utf-8')
 alignment_helper = alignment_helper_path.read_text(encoding='utf-8')
@@ -19,6 +20,7 @@ rem09_d4_helper = rem09_d4_helper_path.read_text(encoding='utf-8')
 runtime = runtime_path.read_text(encoding='utf-8')
 review_audio = review_audio_path.read_text(encoding='utf-8')
 writer_control = writer_control_path.read_text(encoding='utf-8')
+owner_snapshot_helper = owner_snapshot_helper_path.read_text(encoding='utf-8')
 github_attempt_token = '$' + '{{ github.run_attempt }}'
 command = 'run-' + 'function'
 
@@ -43,6 +45,11 @@ required_sync = [
     github_attempt_token,
     'steps.source_attestation.outputs.attested',
     'steps.smoke_boundary.outputs.ready',
+    'brg_monitor_owner_snapshot:',
+    'AUTHORIZE_BRG_MONITOR_OWNER_SNAPSHOT_READONLY',
+    'Capture BRG Monitor owner snapshot read-only',
+    'h3MonitoringObserverPreview',
+    'brg_monitor_owner_snapshot_validate.py validate',
     'PRE_C6_READBACK',
     'C6_ACTIVATE',
     'C9_READBACK',
@@ -311,6 +318,50 @@ w=sync[p:a]
 for t in ['H3_DELETE_ONLY_SYNC_REFRESH','git diff --exit-code -- "$marker_file"',"steps.remote_file_set.outputs.refresh == 'true'"]:
     if t not in w:
         raise SystemExit('Delete-only sync guard missing: '+t)
+
+required_owner_snapshot_helper = [
+    'H3_BRG_MONITOR_OWNER_SNAPSHOT_EVIDENCE_V1',
+    'H3-MONITOR-OWNER-LEVEL-TRANSPORT-20261004-V1',
+    'SOURCE_LEVEL = "3級"',
+    'RUNTIME_LEVEL = "3급"',
+    'runtime_population_performed',
+    'MONITOR_OWNER_PROJECTION_TRANSPORT_ONLY',
+]
+missing_owner_snapshot_helper = [
+    token for token in required_owner_snapshot_helper
+    if token not in owner_snapshot_helper
+]
+if missing_owner_snapshot_helper:
+    raise SystemExit(
+        'BRG Monitor owner snapshot helper contract missing: '
+        + ', '.join(missing_owner_snapshot_helper)
+    )
+subprocess.run(
+    ['python3', str(owner_snapshot_helper_path), 'self-test'],
+    check=True,
+)
+
+owner_snapshot_step = sync.find('Capture BRG Monitor owner snapshot read-only')
+owner_snapshot_upload = sync.find('Upload BRG Monitor owner snapshot evidence')
+manual_boundary_for_owner = sync.find('Validate one-revision read-only smoke boundary')
+if not (
+    0 <= manual_boundary_for_owner < owner_snapshot_step < owner_snapshot_upload
+):
+    raise SystemExit('BRG Monitor owner snapshot step order invalid.')
+owner_snapshot_block = sync[owner_snapshot_step:owner_snapshot_upload]
+for token in [
+    "if: steps.smoke_boundary.outputs.ready == 'true'",
+    "github.event.inputs.brg_monitor_owner_snapshot == 'AUTHORIZE_BRG_MONITOR_OWNER_SNAPSHOT_READONLY'",
+    'h3MonitoringObserverPreview',
+    'brg_monitor_owner_snapshot_validate.py validate',
+    'SOURCE_SHA:',
+    'MIGRATION_RUNTIME_CONTROL:',
+    'MIG_ASSET_ACCEPTANCE_2:',
+    'REM09_VALIDATION:',
+    'REM09_REPAIR:',
+]:
+    if token not in owner_snapshot_block:
+        raise SystemExit('BRG Monitor owner snapshot workflow guard missing: ' + token)
 
 command_refs = []
 pattern = re.compile(
