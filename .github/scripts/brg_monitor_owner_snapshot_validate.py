@@ -6,7 +6,9 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -307,9 +309,110 @@ def self_test() -> None:
     print("BRG Monitor owner snapshot validator self-test PASS")
 
 
+def add_provider_readback(envelope: dict, evidence: dict, trigger: dict) -> dict:
+    """Retain bounded Monitor semantics and a read-only trigger receipt."""
+    snapshot = envelope["response"]
+    require(isinstance(trigger, dict), "PROVIDER_TRIGGER_RESPONSE_INVALID")
+    require(trigger.get("schema") == "H3_MONITOR_PRODUCTION_TRIGGER_V1",
+            "PROVIDER_TRIGGER_SCHEMA_INVALID")
+    require(trigger.get("write_performed") is False, "PROVIDER_TRIGGER_WRITE_INVALID")
+    require(trigger.get("status") in {"READY", "ABSENT", "ERROR"},
+            "PROVIDER_TRIGGER_STATUS_INVALID")
+    sources = []
+    for source in snapshot["sources"]:
+        require(source.get("status") in {"OK", "WARNING", "ERROR"},
+                "PROVIDER_SOURCE_STATUS_INVALID")
+        events = source.get("action_required_events", [])
+        require(isinstance(events, list) and len(events) <= 1000,
+                "PROVIDER_EVENTS_INVALID")
+        identities = []
+        for event in events:
+            require(isinstance(event, dict) and event.get("source_id") == source["source_id"],
+                    "PROVIDER_EVENT_SOURCE_INVALID")
+            require(all(isinstance(event.get(k), str) and 0 < len(event[k]) <= 512
+                        for k in ["event_key", "event_type"]), "PROVIDER_EVENT_ID_INVALID")
+            identities.append({k: event[k] for k in ["source_id", "event_key", "event_type"]})
+        item = {"source_id": source["source_id"], "status": source["status"],
+                "action_required_events": identities}
+        data = source.get("data") or {}
+        if source["source_id"] == "ERROR_STATE":
+            boot = data.get("boot")
+            require(isinstance(boot, dict) and boot.get("write_performed") is False,
+                    "PROVIDER_ERROR_BOOT_INVALID")
+            item["boot"] = {k: copy.deepcopy(boot.get(k)) for k in [
+                "schema", "error", "drift", "drift_reasons", "primary_last_log_row",
+                "projected_last_log_row", "current_summary_role"]}
+            for key in ["effective_state", "projection_state"]:
+                state = boot.get(key)
+                require(state is None or isinstance(state, dict), "PROVIDER_ERROR_STATE_INVALID")
+                item["boot"][key] = None if state is None else {k: state.get(k) for k in [
+                    "status", "unresolved_count", "latest_error_id", "latest_error_at",
+                    "latest_error_code", "latest_unresolved_id", "last_log_row", "source_status"]}
+        if source["source_id"] == "RUNTIME_AUTHORITY":
+            item["authority"] = data.get("authority")
+        sources.append(item)
+    trigger_keys = ["schema", "status", "trigger_handler", "configured_cadence_hours",
+                    "configured_near_minute", "configured_timezone", "project_trigger_count",
+                    "matching_trigger_count", "event_type", "trigger_source", "metadata_present",
+                    "metadata_match", "metadata_near_minute", "metadata_timezone",
+                    "duplicate_trigger", "write_performed"]
+    evidence["provider_readback"] = {
+        "schema": "H3_BRG_STEP7_LEGACY_PROVIDER_READBACK_V1",
+        "snapshot_status": snapshot.get("status"), "health": copy.deepcopy(snapshot.get("health")),
+        "sources": sources, "trigger": {k: trigger.get(k) for k in trigger_keys},
+        "snapshot_and_trigger_atomic": False, "email_sent": False,
+        "trigger_mutation_performed": False, "full_provider_parity_accepted": False,
+    }
+    evidence.pop("evidence_sha256", None)
+    evidence["evidence_sha256"] = hashlib.sha256(canonical_bytes(evidence)).hexdigest()
+    return evidence
+
+
+def read_provider_trigger(source_sha: str) -> dict:
+    """Inspect only the fixed trigger status function after manual guards pass."""
+    require(os.environ.get("GITHUB_EVENT_NAME") == "workflow_dispatch"
+            and os.environ.get("GITHUB_RUN_ATTEMPT") == "1"
+            and os.environ.get("GITHUB_SHA") == source_sha,
+            "PROVIDER_MANUAL_EXACT_SHA_GUARD_INVALID")
+    completed = subprocess.run(
+        ["npx", "-y", "@google/clasp@3.4.0", "--json", "run-function",
+         "h3MonitoringProductionTriggerStatus"], capture_output=True, text=True,
+        check=False, timeout=60,
+    )
+    require(completed.returncode == 0, "PROVIDER_TRIGGER_EXECUTION_NONPASS")
+    try:
+        response = json.loads(completed.stdout)
+    except json.JSONDecodeError:
+        fail("PROVIDER_TRIGGER_ENVELOPE_INVALID")
+    require(isinstance(response, dict) and response.get("error") is None,
+            "PROVIDER_TRIGGER_ENVELOPE_NONPASS")
+    return response.get("response")
+
+
+def provider_readback_self_test() -> None:
+    source = {"source_id": "ERROR_STATE", "status": "WARNING", "data": {"boot": {
+        "write_performed": False, "effective_state": {"unresolved_count": 1,
+        "ERROR_MESSAGE": "private"}}}, "action_required_events": [{"source_id": "ERROR_STATE",
+        "event_key": "ERROR_STATE:UNRESOLVED:fixture", "event_type": "UNRESOLVED", "detail": "private"}]}
+    envelope = {"response": {"sources": [source]}}
+    trigger = {"schema": "H3_MONITOR_PRODUCTION_TRIGGER_V1", "status": "READY",
+               "write_performed": False, "extra_secret": "private"}
+    out = add_provider_readback(envelope, {}, trigger)
+    require("private" not in json.dumps(out), "PROVIDER_PRIVACY_TEST_FAILED")
+    for bad in [{**trigger, "write_performed": True}, {**trigger, "schema": "INVALID"}]:
+        try:
+            add_provider_readback(envelope, {}, bad)
+        except SystemExit:
+            pass
+        else:
+            fail("PROVIDER_NEGATIVE_TEST_FAILED")
+    print("BRG provider readback self-test PASS")
+
+
 def main(argv: list[str]) -> None:
     if argv == ["self-test"]:
         self_test()
+        provider_readback_self_test()
         return
     if len(argv) != 8 or argv[0] != "validate":
         fail(
@@ -318,6 +421,7 @@ def main(argv: list[str]) -> None:
         )
     envelope = json.loads(Path(argv[1]).read_text(encoding="utf-8"))
     evidence = build_evidence(envelope, argv[3], argv[4:8])
+    evidence = add_provider_readback(envelope, evidence, read_provider_trigger(argv[3]))
     Path(argv[2]).write_text(
         json.dumps(evidence, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
