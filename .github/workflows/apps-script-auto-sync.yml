@@ -619,11 +619,36 @@ jobs:
             cat "$out"
             exit "$status"
           fi
-          python3 - "$out" "$SOURCE_SHA" "$SOURCE_DIGEST" "$SOURCE_FILE_COUNT" <<'PY'
+          python3 - "$out" "$SOURCE_SHA" "$SOURCE_DIGEST" "$SOURCE_FILE_COUNT" "$err" <<'PY'
           import json
           import sys
 
-          envelope = json.loads(open(sys.argv[1], encoding='utf-8').read())
+          raw = open(sys.argv[1], encoding='utf-8').read()
+          try:
+              envelope = json.loads(raw)
+          except json.JSONDecodeError:
+              stderr = open(sys.argv[5], encoding='utf-8').read()
+              combined = (raw + '\n' + stderr).lower()
+              category = 'UNCLASSIFIED_INVALID_OUTPUT'
+              for marker, code in [
+                  ('invalid_grant', 'AUTH_INVALID_GRANT'),
+                  ('permission', 'EXECUTION_PERMISSION_ERROR'),
+                  ('not authorized', 'EXECUTION_PERMISSION_ERROR'),
+                  ('api executable', 'API_EXECUTABLE_UNAVAILABLE'),
+                  ('script function not found', 'API_EXECUTABLE_UNAVAILABLE'),
+                  ('unable to run script', 'EXECUTION_UNAVAILABLE'),
+              ]:
+                  if marker in combined:
+                      category = code
+                      break
+              # Never emit raw command output: it may contain credentials or payloads.
+              raise SystemExit(
+                  'CLASP_SOURCE_BINDING_OUTPUT_INVALID: '
+                  f'category={category}; stdout_bytes={len(raw.encode("utf-8"))}; '
+                  f'stderr_present={bool(stderr.strip())}'
+              ) from None
+          if not isinstance(envelope, dict):
+              raise SystemExit('CLASP_SOURCE_BINDING_ENVELOPE_INVALID')
           if envelope.get('error'):
               raise SystemExit('Observability source binding returned an Apps Script error envelope.')
           result = envelope.get('response')
