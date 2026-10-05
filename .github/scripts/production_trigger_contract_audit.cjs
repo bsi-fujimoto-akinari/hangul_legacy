@@ -16,6 +16,7 @@ for (const token of [
   "'Asia/Tokyo'",
   'function h3MonitoringProductionTriggerAlignmentStatus()',
   'function h3MonitoringProductionTriggerRealignToHour()',
+  'function h3MonitoringProductionTriggerRestoreForRollback()',
   '.nearMinute(H3_MONITOR_PRODUCTION_TRIGGER_NEAR_MINUTE_)',
   '.everyHours(H3_MONITOR_PRODUCTION_TRIGGER_CADENCE_HOURS_)',
   '.inTimezone(H3_MONITOR_PRODUCTION_TRIGGER_TIMEZONE_)',
@@ -111,6 +112,23 @@ assert(ensured.status==='READY' && ensured.created===true,'ensure failed');
 let status=h3MonitoringProductionTriggerStatus();
 assert(status.configured_near_minute===0,'near minute mismatch');
 assert(status.configured_timezone==='Asia/Tokyo','timezone mismatch');
+h3MonitoringProductionTriggerRemove();
+const restored=h3MonitoringProductionTriggerRestoreForRollback();
+assert(
+  restored.status==='READY' &&
+  restored.restored===true &&
+  restored.write_performed===true &&
+  triggers.length===1,
+  'rollback restore failed'
+);
+const restoreNoop=h3MonitoringProductionTriggerRestoreForRollback();
+assert(
+  restoreNoop.status==='READY' &&
+  restoreNoop.restored===false &&
+  restoreNoop.write_performed===false &&
+  triggers.length===1,
+  'rollback restore no-op failed'
+);
 h3MonitoringProductionTriggerRemove();
 
 const legacy=makeTrigger(H3_MONITOR_PRODUCTION_TRIGGER_HANDLER_,'LEGACY-1',{everyHours:1});

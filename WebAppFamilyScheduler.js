@@ -8554,6 +8554,83 @@ function h3MonitoringProductionTriggerRealignToHour() {
   }
 }
 
+function h3MonitoringProductionTriggerRestoreForRollback() {
+  h3MonitoringProductionRequireScopes_();
+  var lock=LockService.getScriptLock();
+  if(!lock.tryLock(30000)){
+    throw new Error('MONITOR_PRODUCTION_TRIGGER_LOCK_BUSY');
+  }
+  try {
+    var before=h3MonitoringProductionTriggerStatus_();
+    if(before.status==='READY'){
+      return {
+        schema:H3_MONITOR_PRODUCTION_TRIGGER_SCHEMA_,
+        status:'READY',
+        restored:false,
+        trigger:before,
+        write_performed:false
+      };
+    }
+    if(before.status!=='ABSENT'){
+      throw new Error(
+        'MONITOR_PRODUCTION_TRIGGER_ROLLBACK_RESTORE_FAIL_CLOSED'
+      );
+    }
+
+    var props=PropertiesService.getScriptProperties();
+    var created=h3MonitoringProductionTriggerCreateAligned_();
+    var cleanupErrors=[];
+    try {
+      h3MonitoringProductionTriggerWriteMetadata_(props,created);
+      var after=h3MonitoringProductionTriggerStatus_();
+      if(
+        after.status!=='READY' ||
+        Number(after.matching_trigger_count)!==1 ||
+        Number(after.configured_near_minute)!==
+          H3_MONITOR_PRODUCTION_TRIGGER_NEAR_MINUTE_ ||
+        String(after.configured_timezone)!==
+          H3_MONITOR_PRODUCTION_TRIGGER_TIMEZONE_
+      ){
+        throw new Error(
+          'MONITOR_PRODUCTION_TRIGGER_ROLLBACK_RESTORE_READBACK_MISMATCH'
+        );
+      }
+      return {
+        schema:H3_MONITOR_PRODUCTION_TRIGGER_SCHEMA_,
+        status:'READY',
+        restored:true,
+        trigger:after,
+        write_performed:true
+      };
+    } catch(err) {
+      try {
+        ScriptApp.deleteTrigger(created);
+      } catch(deleteErr) {
+        cleanupErrors.push(
+          'trigger:'+String(deleteErr&&deleteErr.message||deleteErr)
+        );
+      }
+      try {
+        h3MonitoringProductionTriggerClearMetadata_();
+      } catch(metadataErr) {
+        cleanupErrors.push(
+          'metadata:'+String(metadataErr&&metadataErr.message||metadataErr)
+        );
+      }
+      if(cleanupErrors.length){
+        throw new Error(
+          'MONITOR_PRODUCTION_TRIGGER_ROLLBACK_RESTORE_CLEANUP_FAILED:'+
+          cleanupErrors.join('|')+
+          ':CAUSE:'+String(err&&err.message||err)
+        );
+      }
+      throw err;
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 function h3MonitoringProductionTriggerRemove() {
   h3MonitoringProductionRequireScopes_();
   var lock=LockService.getScriptLock();

@@ -991,6 +991,10 @@ Production lifecycle functions:
   `everyHours(1)`, and `Asia/Tokyo`. The aligned trigger is created before
   the legacy trigger is removed so monitoring coverage is preserved; metadata
   is rolled back if migration cannot complete.
+- `h3MonitoringProductionTriggerRestoreForRollback()` — rollback-only
+  restoration of the exact canonical hourly trigger after an accepted provider
+  cutover rollback. It does not run the HEALTHY-source activation preflight;
+  it may only restore from exact ABSENT and must read back one aligned trigger.
 - `h3MonitoringProductionTriggerRemove()` — recovery-only removal of exactly
   one verified production trigger. Duplicate or identity-mismatched state is
   fail-closed and is never mass-deleted.
