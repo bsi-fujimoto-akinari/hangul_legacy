@@ -1,13 +1,5 @@
 {
   "schema": "H3_REPO_WRITE_LOCK_V1",
   "repository": "bsi-fujimoto-akinari/hangul_legacy",
-  "lock": {
-    "lock_id": "WORK-BRGOBS8-PREP-20261005T021324Z:bsi-fujimoto-akinari/hangul_legacy",
-    "holder": "CHAT",
-    "base_sha": "fa8ffc2566d19beb273107212553f56e6e101009",
-    "acquired_at": "2026-10-05T02:13:24.750808Z",
-    "expires_at": "2026-10-05T02:23:24.750808Z",
-    "lease_set_id": "WORK-BRGOBS8-PREP-20261005T021324Z",
-    "profile": "V3_NATIVE"
-  }
+  "lock": null
 }
