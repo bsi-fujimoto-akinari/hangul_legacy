@@ -6476,6 +6476,48 @@ function h3MonitoringErrorStateFromBoot_(
   };
 }
 
+function h3MonitoringErrorStateAuthorityGuard_(
+  runtimeAuthority,
+  checkedAt
+) {
+  if (
+    String(runtimeAuthority || '') !==
+      'D1'
+  ) {
+    return null;
+  }
+
+  return h3MonitoringErrorStateFromBoot_({
+    schema:
+      H3_ERROR_STATE_BOOT_SCHEMA_,
+    checked_at:
+      String(checkedAt || ''),
+    error:
+      'UNKNOWN',
+    drift:
+      'UNKNOWN',
+    drift_reasons: [
+      'AUTHORITATIVE_ERROR_STATE_EXTERNAL_TO_LEGACY'
+    ],
+    primary_last_log_row:
+      null,
+    projected_last_log_row:
+      null,
+    effective_state:
+      null,
+    projection_state:
+      null,
+    projection_read_error:
+      null,
+    current_summary_role:
+      'DISPLAY_ONLY',
+    read_error:
+      'AUTHORITATIVE_ERROR_STATE_EXTERNAL_TO_LEGACY',
+    write_performed:
+      false
+  });
+}
+
 function h3MonitoringErrorStateSource_(
   ss,
   nowMs
@@ -6489,6 +6531,23 @@ function h3MonitoringErrorStateSource_(
       throw new Error(
         'MONITOR_ERROR_STATE_TIME_INVALID'
       );
+    }
+    if (
+      typeof h3RuntimeAuthority_ !==
+        'function'
+    ) {
+      throw new Error(
+        'MONITOR_RUNTIME_AUTHORITY_READER_MISSING'
+      );
+    }
+
+    var authorityGuard =
+      h3MonitoringErrorStateAuthorityGuard_(
+        h3RuntimeAuthority_(),
+        checkedAt
+      );
+    if (authorityGuard) {
+      return authorityGuard;
     }
 
     var raw =
@@ -6733,6 +6792,37 @@ function h3MonitoringErrorStatePhase4SelfTest_() {
     );
   }
 
+  var d1AuthorityGuard =
+    h3MonitoringErrorStateAuthorityGuard_(
+      'D1',
+      '2026-09-26T15:00:00.000Z'
+    );
+  var legacyAuthorityGuard =
+    h3MonitoringErrorStateAuthorityGuard_(
+      'LEGACY',
+      '2026-09-26T15:00:00.000Z'
+    );
+  if (
+    !d1AuthorityGuard ||
+    d1AuthorityGuard.status !== 'ERROR' ||
+    d1AuthorityGuard.data.flags.indexOf(
+      'PRIMARY_SOURCE_UNKNOWN'
+    ) < 0 ||
+    d1AuthorityGuard.action_required_events.length !==
+      1 ||
+    d1AuthorityGuard.action_required_events[0]
+      .event_type !==
+      'ERROR_STATE_PRIMARY_SOURCE_UNKNOWN' ||
+    d1AuthorityGuard.action_required_events[0]
+      .detail !==
+      'AUTHORITATIVE_ERROR_STATE_EXTERNAL_TO_LEGACY' ||
+    legacyAuthorityGuard !== null
+  ) {
+    throw new Error(
+      'ERROR_STATE_PHASE4_D1_AUTHORITY_GUARD_FAIL'
+    );
+  }
+
   return {
     schema:
       'H3_ERROR_STATE_PHASE4_SELF_TEST_V1',
@@ -6753,7 +6843,7 @@ function h3MonitoringErrorStatePhase4SelfTest_() {
     lifecycle_only_semantic_drift_email:
       false,
     cases:
-      5,
+      6,
     write_performed:
       false
   };
