@@ -12,6 +12,7 @@ allowed = {
     '.gitignore',
     'Code.js',
     'WebApp.js',
+    'WebAppSourceAdapter.js',
     'WebAppCloudflareRuntime.js',
     'WebAppObservability.js',
     'WebAppErrorState.js',
