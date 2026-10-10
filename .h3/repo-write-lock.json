@@ -1,5 +1,22 @@
 {
   "schema": "H3_REPO_WRITE_LOCK_V1",
   "repository": "bsi-fujimoto-akinari/hangul_legacy",
-  "lock": null
+  "lock": {
+    "lock_id": "mcp:MIG-SOURCE-UNIT14-SIX-CONSUMER-COMPATIBILITY-EVIDENCE-LEGACY-RECOVERY:b540f4c2-e60c-478d-bffd-32e246c6083e",
+    "holder": "CHAT",
+    "base_sha": "4d597e3ed2f21c3e91764994bafb44c2f516e0c3",
+    "acquired_at": "2026-10-10T21:26:54.535Z",
+    "expires_at": "2026-10-10T21:36:54.535Z",
+    "profile": "V3_NATIVE",
+    "write_class": "LEASE_REQUIRED",
+    "authorization_source": "CURRENT_TURN_EXPLICIT_USER_AUTHORIZATION",
+    "authorization_scope": "Bounded V3 recovery of only the remaining authorized hangul_legacy adapter path after verified multi-repo PARTIAL; no force, no direct push, no scope expansion",
+    "paths": [
+      "WebAppSourceAdapter.js"
+    ],
+    "force": false,
+    "lease_set_id": "gls_7abd9fa1-df23-4856-a859-eb54ac49b08e",
+    "transaction_id": "gtx_aa445295-8dd8-4999-89a7-a5065e7cf609",
+    "member_count": 1
+  }
 }
