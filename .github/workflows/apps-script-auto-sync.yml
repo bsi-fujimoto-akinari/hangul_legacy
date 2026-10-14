@@ -871,11 +871,7 @@ jobs:
       - name: Run Azure TTS post-reactivation smoke
         if: steps.smoke_boundary.outputs.ready == 'true' && github.event.inputs.azure_tts_reactivation_smoke == 'AUTHORIZE_AZURE_TTS_REACTIVATION_SMOKE'
         shell: bash
-        run: |
-          set -euo pipefail
-          out=/tmp/h3-azure-tts-reactivation-smoke.json
-          npx -y @google/clasp@3.4.0 --json run-function h3AzureTtsReactivationSmoke >"$out"
-          python3 .github/scripts/apps_script_execution_boundary_audit.py validate-azure-tts-reactivation-smoke "$out"
+        run: out=/tmp/h3-azure-tts-reactivation-smoke.json; npx -y @google/clasp@3.4.0 --json run-function h3AzureTtsReactivationSmoke >"$out" && python3 .github/scripts/apps_script_execution_boundary_audit.py validate-azure-tts-reactivation-smoke "$out"
 
       - name: Capture BRG Monitor owner snapshot read-only
         if: steps.smoke_boundary.outputs.ready == 'true' && github.event.inputs.brg_monitor_owner_snapshot == 'AUTHORIZE_BRG_MONITOR_OWNER_SNAPSHOT_READONLY'
