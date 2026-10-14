@@ -6920,6 +6920,42 @@ function azureTtsBlobFromResponse_(
 }
 
 
+function h3AzureTtsReactivationSmoke() {
+  const c = config_();
+  const ssml =
+    '<speak version="1.0" xml:lang="ko-KR">' +
+    '<voice name="ko-KR-HyunsuNeural">' +
+    '연결 확인입니다.' +
+    '</voice></speak>';
+  const blob = synthesize_(
+    ssml,
+    c
+  );
+  const bytes = blob.getBytes();
+
+  if (
+    !Array.isArray(bytes) ||
+    bytes.length < 128
+  ) {
+    throw new Error(
+      'AZURE_TTS_REACTIVATION_SMOKE_INVALID_MP3'
+    );
+  }
+
+  return {
+    schema:
+      'H3_AZURE_TTS_REACTIVATION_SMOKE_V1',
+    status: 'PASS',
+    region:
+      String(c.AZURE_SPEECH_REGION || ''),
+    mime_type:
+      String(blob.getContentType() || ''),
+    size_bytes: bytes.length,
+    write_performed: false
+  };
+}
+
+
 function azureVoiceBlock_(
   voice,
   text,
