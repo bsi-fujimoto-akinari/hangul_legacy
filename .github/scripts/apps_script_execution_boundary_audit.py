@@ -1,42 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
-import json
 import re
 import subprocess
-import sys
-
-
-def validate_azure_tts_reactivation_smoke(path):
-    envelope = json.loads(Path(path).read_text(encoding='utf-8'))
-    if envelope.get('error') is not None:
-        raise SystemExit('Azure TTS smoke returned an Apps Script error envelope.')
-    result = envelope.get('response')
-    if not isinstance(result, dict):
-        raise SystemExit('Azure TTS smoke response is not an object.')
-    expected = {
-        'schema': 'H3_AZURE_TTS_REACTIVATION_SMOKE_V1',
-        'status': 'PASS',
-        'mime_type': 'audio/mpeg',
-        'write_performed': False,
-    }
-    for key, value in expected.items():
-        if result.get(key) != value:
-            raise SystemExit(f'Azure TTS smoke mismatch for {key}.')
-    if not isinstance(result.get('size_bytes'), int) or result['size_bytes'] < 128:
-        raise SystemExit('Azure TTS smoke returned an invalid MP3 byte count.')
-    if not isinstance(result.get('region'), str) or not result['region']:
-        raise SystemExit('Azure TTS smoke region is missing.')
-    print('AZURE_TTS_REACTIVATION_SMOKE=PASS')
-    print('AZURE_TTS_REGION=' + result['region'])
-    print('AZURE_TTS_MIME_TYPE=' + result['mime_type'])
-    print('AZURE_TTS_SIZE_BYTES=' + str(result['size_bytes']))
-    print('AZURE_TTS_WRITE_PERFORMED=false')
-
-
-if len(sys.argv) == 3 and sys.argv[1] == 'validate-azure-tts-reactivation-smoke':
-    validate_azure_tts_reactivation_smoke(sys.argv[2])
-    raise SystemExit(0)
-
 
 sync_path = Path('.github/workflows/apps-script-auto-sync.yml')
 ops_path = Path('OPERATIONS.md')
