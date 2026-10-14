@@ -1,5 +1,23 @@
 {
   "schema": "H3_REPO_WRITE_LOCK_V1",
   "repository": "bsi-fujimoto-akinari/hangul_legacy",
-  "lock": null
+  "lock": {
+    "lock_id": "mcp:AZURE-TTS-POST-REACTIVATION-SMOKE-20261014-V2:b9e0082b-9c85-45f1-a378-bdc2000bfcd9",
+    "holder": "CHAT",
+    "base_sha": "5a895fdaf461a31026b307ea64f0856e4861b962",
+    "acquired_at": "2026-10-14T13:42:59.600Z",
+    "expires_at": "2026-10-14T13:52:59.600Z",
+    "profile": "V3_NATIVE",
+    "write_class": "LEASE_REQUIRED",
+    "authorization_source": "CURRENT_TURN_REPOSITORY_OWNER_EXPLICIT_AUTHORIZATION",
+    "authorization_scope": "User authorized the HANGUL current-route Azure TTS smoke test and explicitly instructed continuation.",
+    "paths": [
+      "Code.js",
+      ".github/workflows/apps-script-auto-sync.yml"
+    ],
+    "force": false,
+    "lease_set_id": "gls_4fecbf26-f8ff-44b1-91bd-a39ae93ebd1a",
+    "transaction_id": "gtx_b3948b8a-cfc8-4f77-b0ba-8fc4f369ceae",
+    "member_count": 1
+  }
 }
