@@ -10,6 +10,7 @@ import sys
 allowed = {
     '.clasp.json',
     '.gitignore',
+    '.gitattributes',
     'Code.js',
     'WebApp.js',
     'WebAppSourceAdapter.js',
