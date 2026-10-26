@@ -1,22 +1,5 @@
 {
   "schema": "H3_REPO_WRITE_LOCK_V1",
   "repository": "bsi-fujimoto-akinari/hangul_legacy",
-  "lock": {
-    "lock_id": "1e120871-eb97-40fc-8fb5-c4c8f56d9049",
-    "holder": "CHAT",
-    "base_sha": "9b8f3a4969b33d422244e148fbbc67fef0b37be5",
-    "acquired_at": "2026-10-26T05:19:16.909Z",
-    "expires_at": "2026-10-26T05:29:16.909Z",
-    "profile": "V3_NATIVE",
-    "write_class": "LEASE_REQUIRED",
-    "authorization_source": "CURRENT_TURN_REPOSITORY_OWNER_EXPLICIT_AUTHORIZATION",
-    "authorization_scope": "User explicitly authorized H6 legacy protected-branch recovery R1 temporary branch and PR creation.",
-    "paths": [
-      ".gitattributes"
-    ],
-    "force": false,
-    "lease_set_id": "0acebe54-8bfc-41ca-87a0-5b746d142c76",
-    "transaction_id": "34c66f59-b033-42c3-bade-b10187ff4a46",
-    "member_count": 1
-  }
+  "lock": null
 }
