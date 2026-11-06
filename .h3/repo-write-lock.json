@@ -1,5 +1,11 @@
 {
   "schema": "H3_REPO_WRITE_LOCK_V1",
   "repository": "bsi-fujimoto-akinari/hangul_legacy",
-  "lock": null
+  "lock": {
+    "lock_id": "source-u6-codex-ruleset-recovery-20261106",
+    "holder": "WORK",
+    "base_sha": "736513701a567e1568c14092045c556daf65009a",
+    "acquired_at": "2026-11-06T09:53:31.526914+00:00",
+    "expires_at": "2026-11-06T10:03:31.526914+00:00"
+  }
 }
