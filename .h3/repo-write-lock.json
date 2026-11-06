@@ -1,5 +1,21 @@
 {
   "schema": "H3_REPO_WRITE_LOCK_V1",
   "repository": "bsi-fujimoto-akinari/hangul_legacy",
-  "lock": null
+  "lock": {
+    "lock_id": "codex-source-u6-composite-1793982700078",
+    "holder": "CODEX",
+    "work_unit_id": "MIG-SOURCE-PROMOTION-6/8",
+    "operation": "SOURCE_U6_CLASSIFIER_HELPER_REPAIR",
+    "base_sha": "b415090fdf3388516760cfe1426cae8fe3bb5f99",
+    "acquired_at": "2026-11-06T16:31:40.078Z",
+    "expires_at": "2026-11-06T16:41:40.078Z",
+    "ttl_seconds": 600,
+    "paths": [
+      ".github/scripts/apps_script_deployment_readonly_audit.py"
+    ],
+    "production_mutation": false,
+    "external_effect": false,
+    "stage_advance": false,
+    "force": false
+  }
 }
