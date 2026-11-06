@@ -28,7 +28,8 @@ STAGES = frozenset({
     'SAFE_OUTPUT_FAILURE', 'INVOCATION_MODE',
 })
 CODES = frozenset({'OPERATION_FAILED', 'TIMEOUT', 'COMMAND_FAILED',
-                   'INVALID_JSON', 'INVALID_VALUE', 'OUTPUT_BOUND'})
+                   'INVALID_JSON', 'INVALID_VALUE', 'OUTPUT_BOUND',
+                   'AUTH_ENVELOPE_INVALID', 'AUTH_DEFAULT_MISSING', 'AUTH_ENVELOPE_UNKNOWN'})
 
 
 class Diagnostic(Exception):
@@ -133,6 +134,41 @@ def normalize(deployments, versions, target):
             'open_gates': ['VERSIONED_SOURCE_IDENTITY', 'PROVIDER_ENDPOINT_TYPE', 'OWNER_REACHABILITY', 'KNOWN_GOOD_SIGNOFF']}
 
 
+def credential_shape(secret):
+    # clasp 3.4.0 FileCredentialStore.load('default') precedence, offline only.
+    # Recognizing a shape never establishes token validity or provider access.
+    def nonempty_text(value):
+        return isinstance(value, str) and bool(value.strip())
+
+    if not isinstance(secret, dict) or not secret:
+        return 'AUTH_ENVELOPE_INVALID'
+    tokens = secret.get('tokens')
+    if tokens is not None and not isinstance(tokens, dict):
+        return 'AUTH_ENVELOPE_INVALID'
+    if isinstance(tokens, dict) and tokens.get('default'):
+        credential = tokens['default']
+        valid = (isinstance(credential, dict)
+                 and credential.get('type') == 'authorized_user'
+                 and all(nonempty_text(credential.get(key)) for key in
+                         ('client_id', 'client_secret', 'refresh_token')))
+        return None if valid else 'AUTH_ENVELOPE_INVALID'
+    # Named-only V3 may still fall back to a supported V1 default.
+    if secret.get('token') and secret.get('oauth2ClientSettings'):
+        token, settings = secret['token'], secret['oauth2ClientSettings']
+        valid = (isinstance(token, dict) and isinstance(settings, dict)
+                 and nonempty_text(token.get('refresh_token'))
+                 and nonempty_text(settings.get('clientId'))
+                 and nonempty_text(settings.get('clientSecret')))
+        return None if valid else 'AUTH_ENVELOPE_INVALID'
+    if secret.get('access_token'):
+        return None if nonempty_text(secret['access_token']) else 'AUTH_ENVELOPE_INVALID'
+    if isinstance(tokens, dict):
+        return 'AUTH_DEFAULT_MISSING'
+    if 'token' in secret or 'oauth2ClientSettings' in secret:
+        return 'AUTH_ENVELOPE_INVALID'
+    return 'AUTH_ENVELOPE_UNKNOWN'
+
+
 def execute():
     checked('IMMUTABLE_MAIN_OR_AUDIT_GUARD', guard)
     target = os.environ.get('AUDIT_TARGET', '')
@@ -146,8 +182,9 @@ def execute():
         raise Diagnostic('TARGET_OR_PINNED_CLI_VERSION', 'INVALID_VALUE')
     secret = checked('CREDENTIAL_PRESENCE_OR_JSON_SCHEMA',
                      lambda: json.loads(os.environ.pop('CLASPRC_JSON', '')))
-    if not isinstance(secret, dict) or not secret:
-        raise Diagnostic('CREDENTIAL_PRESENCE_OR_JSON_SCHEMA', 'INVALID_VALUE')
+    shape_error = credential_shape(secret)
+    if shape_error:
+        raise Diagnostic('CREDENTIAL_PRESENCE_OR_JSON_SCHEMA', shape_error)
 
     def inventory():
         with tempfile.TemporaryDirectory(prefix='h3-readonly-') as tmp:
@@ -277,7 +314,7 @@ def self_test():
                 ('version_timeout', 'TARGET_OR_PINNED_CLI_VERSION', 'TIMEOUT'),
                 ('missing_auth', 'CREDENTIAL_PRESENCE_OR_JSON_SCHEMA', 'INVALID_JSON'),
                 ('bad_auth', 'CREDENTIAL_PRESENCE_OR_JSON_SCHEMA', 'INVALID_JSON'),
-                ('auth_schema', 'CREDENTIAL_PRESENCE_OR_JSON_SCHEMA', 'INVALID_VALUE'),
+                ('auth_schema', 'CREDENTIAL_PRESENCE_OR_JSON_SCHEMA', 'AUTH_ENVELOPE_INVALID'),
                 ('deployments', 'LIST_DEPLOYMENTS_COMMAND', 'COMMAND_FAILED'),
                 ('versions', 'LIST_VERSIONS_COMMAND', 'COMMAND_FAILED'),
                 ('deployments_timeout', 'LIST_DEPLOYMENTS_COMMAND', 'TIMEOUT'),
@@ -294,7 +331,7 @@ def self_test():
                 with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
                     summary = Path(tmp) / 'summary'
                     env = {'AUDIT_TARGET': DEPLOYMENT, 'GITHUB_STEP_SUMMARY': str(summary),
-                           'CLASPRC_JSON': json.dumps({'fake': canaries[4]})}
+                           'CLASPRC_JSON': json.dumps({'access_token': canaries[4]})}
                     if case == 'missing_auth':
                         del env['CLASPRC_JSON']
                     elif case == 'bad_auth':
@@ -340,6 +377,54 @@ def self_test():
                     self.assertEqual(evidence['status'], 'HOLD')
                     self.assertFalse(evidence['known_good_rollback'])
                     self.assertEqual(err.getvalue(), '')
+        def test_envelopes(self):
+            from types import SimpleNamespace
+            value = 'PRIVATE_CANARY_CREDENTIAL'
+            modern = {'type': 'authorized_user', 'client_id': value,
+                      'client_secret': value, 'refresh_token': value}
+            local = {'token': {'refresh_token': value},
+                     'oauth2ClientSettings': {'clientId': value, 'clientSecret': value}}
+            for envelope in ({'tokens': {'default': modern}}, local,
+                             {'access_token': value}, dict(local, tokens={'named': modern})):
+                self.assertIsNone(credential_shape(envelope))
+            for envelope, code in [
+                ({'tokens': {'named': modern}}, 'AUTH_DEFAULT_MISSING'),
+                ({'tokens': {}}, 'AUTH_DEFAULT_MISSING'),
+                ({'tokens': {'default': value}}, 'AUTH_ENVELOPE_INVALID'),
+                ({'tokens': []}, 'AUTH_ENVELOPE_INVALID'),
+                ({'token': value}, 'AUTH_ENVELOPE_INVALID'),
+                ({'access_token': True}, 'AUTH_ENVELOPE_INVALID'),
+                ({'unsupported': value}, 'AUTH_ENVELOPE_UNKNOWN'),
+                ({}, 'AUTH_ENVELOPE_INVALID'), ([], 'AUTH_ENVELOPE_INVALID')]:
+                self.assertEqual(credential_shape(envelope), code)
+                with tempfile.TemporaryDirectory() as tmp:
+                    summary = Path(tmp) / 'summary'
+                    env = {'CLASPRC_JSON': json.dumps(envelope), 'AUDIT_TARGET': INVENTORY,
+                           'GITHUB_STEP_SUMMARY': str(summary), 'PRIVATE_CANARY_ENV': value}
+                    out, err = io.StringIO(), io.StringIO()
+                    with patch.dict(os.environ, env, clear=True), patch.object(sys, 'argv', ['helper', 'execute']), patch(__name__ + '.guard'), patch.object(subprocess, 'run', return_value=SimpleNamespace(stdout='3.4.0')) as run, contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                        self.assertEqual(main(), 1)
+                        self.assertEqual(run.call_count, 1)  # version only; no auth CLI
+                    self.assertEqual(json.loads(out.getvalue())['diagnostic_code'], code)
+                    self.assertNotIn('PRIVATE_CANARY', out.getvalue() + err.getvalue() + summary.read_text())
+
+        def test_ambiguous_provider_errors(self):
+            # Pinned clasp has no established structured error output contract.
+            # Keep COMMAND_FAILED; 401/403/free text must not assert root causes.
+            for payload in ('401', '403', '500', 'API_DISABLED',
+                            '{"error":{"code":403,"status":"PERMISSION_DENIED"}}',
+                            'PRIVATE_CANARY_CHILD'):
+                failure = subprocess.CalledProcessError(1, 'PRIVATE_CANARY_COMMAND',
+                            output=payload, stderr=payload)
+                with self.assertRaises(Diagnostic) as caught:
+                    checked('LIST_DEPLOYMENTS_COMMAND', lambda: (_ for _ in ()).throw(failure))
+                self.assertEqual(caught.exception.code, 'COMMAND_FAILED')
+                out = io.StringIO()
+                with patch.dict(os.environ, {}, clear=True), contextlib.redirect_stdout(out):
+                    report_failure(caught.exception)
+                self.assertNotIn(payload, out.getvalue())
+                self.assertNotIn('PRIVATE_CANARY', out.getvalue())
+
         def test_diagnostic_allowlist(self):
             out = io.StringIO()
             with patch.dict(os.environ, {}, clear=True), contextlib.redirect_stdout(out):
