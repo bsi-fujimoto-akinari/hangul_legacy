@@ -20,6 +20,40 @@ DEPLOYMENT = 'AKfycbxmJnIPTKJY5beUVAU5d0RyKb0Nj-YarY8EkdyczgXHpJKVw4-0kdjv6cYEUX
 OWNER_URL = 'https://script.google.com/macros/s/' + DEPLOYMENT + '/exec'
 INVENTORY = 'READ_ONLY_INVENTORY'
 MAX_BYTES = 1048576
+STAGES = frozenset({
+    'IMMUTABLE_MAIN_OR_AUDIT_GUARD', 'TARGET_OR_PINNED_CLI_VERSION',
+    'CREDENTIAL_PRESENCE_OR_JSON_SCHEMA', 'CREDENTIAL_FILE_LIFECYCLE',
+    'LIST_DEPLOYMENTS_COMMAND', 'LIST_VERSIONS_COMMAND',
+    'CLI_RESPONSE_JSON_OR_BOUNDS', 'METADATA_NORMALIZATION',
+    'SAFE_OUTPUT_FAILURE', 'INVOCATION_MODE',
+})
+CODES = frozenset({'OPERATION_FAILED', 'TIMEOUT', 'COMMAND_FAILED',
+                   'INVALID_JSON', 'INVALID_VALUE', 'OUTPUT_BOUND'})
+
+
+class Diagnostic(Exception):
+    def __init__(self, stage, code):
+        # Reject arbitrary exception attributes before they reach output.
+        self.stage = stage if stage in STAGES else 'INVOCATION_MODE'
+        self.code = code if code in CODES else 'OPERATION_FAILED'
+        super().__init__()
+
+
+def checked(stage, operation):
+    try:
+        return operation()
+    except Diagnostic:
+        raise
+    except subprocess.TimeoutExpired:
+        raise Diagnostic(stage, 'TIMEOUT') from None
+    except subprocess.CalledProcessError:
+        raise Diagnostic(stage, 'COMMAND_FAILED') from None
+    except json.JSONDecodeError:
+        raise Diagnostic(stage, 'INVALID_JSON') from None
+    except ValueError:
+        raise Diagnostic(stage, 'INVALID_VALUE') from None
+    except Exception:
+        raise Diagnostic(stage, 'OPERATION_FAILED') from None
 
 
 def get_json(path):
@@ -100,34 +134,43 @@ def normalize(deployments, versions, target):
 
 
 def execute():
-    guard()  # Must succeed before materializing the existing Actions secret.
+    checked('IMMUTABLE_MAIN_OR_AUDIT_GUARD', guard)
     target = os.environ.get('AUDIT_TARGET', '')
     if target not in (INVENTORY, DEPLOYMENT):
-        raise ValueError('TARGET')
+        raise Diagnostic('TARGET_OR_PINNED_CLI_VERSION', 'INVALID_VALUE')
     clean = {k: os.environ[k] for k in ('PATH', 'HOME', 'SYSTEMROOT') if k in os.environ}
-    version = subprocess.run(['clasp', '--version'], env=clean, capture_output=True,
-                             text=True, timeout=10, check=True).stdout.strip()
+    version = checked('TARGET_OR_PINNED_CLI_VERSION', lambda: subprocess.run(
+        ['clasp', '--version'], env=clean, capture_output=True,
+        text=True, timeout=10, check=True).stdout.strip())
     if version != '3.4.0':
-        raise ValueError('CLI_VERSION')
-    secret = json.loads(os.environ.pop('CLASPRC_JSON', ''))
+        raise Diagnostic('TARGET_OR_PINNED_CLI_VERSION', 'INVALID_VALUE')
+    secret = checked('CREDENTIAL_PRESENCE_OR_JSON_SCHEMA',
+                     lambda: json.loads(os.environ.pop('CLASPRC_JSON', '')))
     if not isinstance(secret, dict) or not secret:
-        raise ValueError('AUTH')
-    with tempfile.TemporaryDirectory(prefix='h3-readonly-') as tmp:
-        auth = Path(tmp) / '.clasprc.json'
-        fd = os.open(auth, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(fd, 'w') as handle:
-            json.dump(secret, handle)
-        del secret
-        outputs = []
-        for command in ('list-deployments', 'list-versions'):
-            # Only these fixed nonmutating CLI commands; capture all diagnostics.
-            result = subprocess.run(['clasp', '--auth', str(auth), '--json', command, SCRIPT],
-                                    env=clean, capture_output=True, timeout=45, check=True)
-            if len(result.stdout) > MAX_BYTES or len(result.stderr) > MAX_BYTES:
-                raise ValueError('BOUND')
-            outputs.append(json.loads(result.stdout))
-        evidence = normalize(*outputs, target)
-    emit(evidence)
+        raise Diagnostic('CREDENTIAL_PRESENCE_OR_JSON_SCHEMA', 'INVALID_VALUE')
+
+    def inventory():
+        with tempfile.TemporaryDirectory(prefix='h3-readonly-') as tmp:
+            auth = Path(tmp) / '.clasprc.json'
+            fd = os.open(auth, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            with os.fdopen(fd, 'w') as handle:
+                json.dump(secret, handle)
+            outputs = []
+            for command, stage in (('list-deployments', 'LIST_DEPLOYMENTS_COMMAND'),
+                                   ('list-versions', 'LIST_VERSIONS_COMMAND')):
+                # Only these fixed nonmutating commands; never forward diagnostics.
+                result = checked(stage, lambda: subprocess.run(
+                    ['clasp', '--auth', str(auth), '--json', command, SCRIPT],
+                    env=clean, capture_output=True, timeout=45, check=True))
+                if len(result.stdout) > MAX_BYTES or len(result.stderr) > MAX_BYTES:
+                    raise Diagnostic('CLI_RESPONSE_JSON_OR_BOUNDS', 'OUTPUT_BOUND')
+                outputs.append(checked('CLI_RESPONSE_JSON_OR_BOUNDS',
+                                       lambda: json.loads(result.stdout)))
+            return checked('METADATA_NORMALIZATION', lambda: normalize(*outputs, target))
+
+    evidence = checked('CREDENTIAL_FILE_LIFECYCLE', inventory)
+    del secret
+    checked('SAFE_OUTPUT_FAILURE', lambda: emit(evidence))
 
 
 def emit(evidence):
@@ -139,6 +182,28 @@ def emit(evidence):
     if summary:
         with open(summary, 'a', encoding='utf-8') as handle:
             handle.write('```json\n' + raw + '\n```\n')
+
+
+def report_failure(failure):
+    # Separate best-effort sinks: a broken summary must never cause a traceback
+    # or erase the original verified failure stage by recursively calling emit.
+    safe = Diagnostic(failure.stage, failure.code)
+    evidence = {'schema': 'H3_APPS_SCRIPT_READONLY_DEPLOYMENT_AUDIT_V1',
+                'status': 'HOLD', 'reason': 'GUARD_PERMISSION_OR_METADATA_UNAVAILABLE',
+                'diagnostic_stage': safe.stage, 'diagnostic_code': safe.code,
+                'known_good_rollback': False}
+    raw = json.dumps(evidence, sort_keys=True)
+    try:
+        print(raw)
+    except Exception:
+        pass
+    try:
+        summary = os.environ.get('GITHUB_STEP_SUMMARY')
+        if summary:
+            with open(summary, 'a', encoding='utf-8') as handle:
+                handle.write('```json\n' + raw + '\n```\n')
+    except Exception:
+        pass
 
 
 def self_test():
@@ -191,6 +256,98 @@ def self_test():
                     self.assertEqual(main(), 1)
                 self.assertNotIn('PRIVATE_CANARY', output.getvalue())
                 self.assertEqual(json.loads(output.getvalue())['status'], 'HOLD')
+        def test_failure_matrix(self):
+            from types import SimpleNamespace
+            import builtins
+            canaries = ['PRIVATE_CANARY_EXCEPTION', 'PRIVATE_CANARY_STDOUT',
+                        'PRIVATE_CANARY_STDERR', 'PRIVATE_CANARY_JSON',
+                        'PRIVATE_CANARY_SECRET', 'PRIVATE_CANARY_SUMMARY']
+            version = SimpleNamespace(stdout='3.4.0')
+            deployment = SimpleNamespace(stdout=json.dumps([
+                {'deploymentId': DEPLOYMENT, 'versionNumber': 10,
+                 'description': canaries[1]}]).encode(), stderr=canaries[2].encode())
+            versions = SimpleNamespace(stdout=b'[{"versionNumber":10}]', stderr=b'')
+            failed = subprocess.CalledProcessError(1, canaries[0],
+                       output=canaries[1], stderr=canaries[2])
+            timeout = subprocess.TimeoutExpired(canaries[0], 45,
+                        output=canaries[1], stderr=canaries[2])
+            cases = [
+                ('guard', 'IMMUTABLE_MAIN_OR_AUDIT_GUARD', 'OPERATION_FAILED'),
+                ('version', 'TARGET_OR_PINNED_CLI_VERSION', 'INVALID_VALUE'),
+                ('version_timeout', 'TARGET_OR_PINNED_CLI_VERSION', 'TIMEOUT'),
+                ('missing_auth', 'CREDENTIAL_PRESENCE_OR_JSON_SCHEMA', 'INVALID_JSON'),
+                ('bad_auth', 'CREDENTIAL_PRESENCE_OR_JSON_SCHEMA', 'INVALID_JSON'),
+                ('auth_schema', 'CREDENTIAL_PRESENCE_OR_JSON_SCHEMA', 'INVALID_VALUE'),
+                ('deployments', 'LIST_DEPLOYMENTS_COMMAND', 'COMMAND_FAILED'),
+                ('versions', 'LIST_VERSIONS_COMMAND', 'COMMAND_FAILED'),
+                ('deployments_timeout', 'LIST_DEPLOYMENTS_COMMAND', 'TIMEOUT'),
+                ('versions_timeout', 'LIST_VERSIONS_COMMAND', 'TIMEOUT'),
+                ('deployments_json', 'CLI_RESPONSE_JSON_OR_BOUNDS', 'INVALID_JSON'),
+                ('versions_json', 'CLI_RESPONSE_JSON_OR_BOUNDS', 'INVALID_JSON'),
+                ('stdout_bound', 'CLI_RESPONSE_JSON_OR_BOUNDS', 'OUTPUT_BOUND'),
+                ('stderr_bound', 'CLI_RESPONSE_JSON_OR_BOUNDS', 'OUTPUT_BOUND'),
+                ('schema', 'METADATA_NORMALIZATION', 'INVALID_VALUE'),
+                ('summary', 'SAFE_OUTPUT_FAILURE', 'OPERATION_FAILED'),
+                ('auth_file', 'CREDENTIAL_FILE_LIFECYCLE', 'OPERATION_FAILED'),
+            ]
+            for case, stage, code in cases:
+                with self.subTest(case=case), tempfile.TemporaryDirectory() as tmp:
+                    summary = Path(tmp) / 'summary'
+                    env = {'AUDIT_TARGET': DEPLOYMENT, 'GITHUB_STEP_SUMMARY': str(summary),
+                           'CLASPRC_JSON': json.dumps({'fake': canaries[4]})}
+                    if case == 'missing_auth':
+                        del env['CLASPRC_JSON']
+                    elif case == 'bad_auth':
+                        env['CLASPRC_JSON'] = canaries[3]
+                    elif case == 'auth_schema':
+                        env['CLASPRC_JSON'] = '[]'
+                    results = [version, deployment, versions]
+                    if case == 'version':
+                        results[0] = SimpleNamespace(stdout=canaries[1])
+                    elif case == 'version_timeout':
+                        results[0] = timeout
+                    elif case in ('deployments', 'deployments_timeout'):
+                        results[1] = timeout if case.endswith('timeout') else failed
+                    elif case in ('versions', 'versions_timeout'):
+                        results[2] = timeout if case.endswith('timeout') else failed
+                    elif case in ('deployments_json', 'versions_json'):
+                        results[1 if case.startswith('deployments') else 2] = SimpleNamespace(stdout=canaries[3].encode(), stderr=b'')
+                    elif case in ('stdout_bound', 'stderr_bound'):
+                        results[1] = SimpleNamespace(stdout=b'x' * (MAX_BYTES + 1) if case == 'stdout_bound' else b'[]',
+                                                     stderr=b'x' * (MAX_BYTES + 1) if case == 'stderr_bound' else b'')
+                    elif case == 'schema':
+                        results[1] = SimpleNamespace(stdout=b'{}', stderr=b'')
+                    original_open, original_os_open = builtins.open, os.open
+                    def safe_open(path, *args, **kwargs):
+                        if case == 'summary' and str(path) == str(summary):
+                            raise OSError(canaries[5])
+                        return original_open(path, *args, **kwargs)
+                    def fake_auth_open(path, *args, **kwargs):
+                        if case == 'auth_file' and str(path).endswith('.clasprc.json'):
+                            raise OSError(canaries[0])
+                        return original_os_open(path, *args, **kwargs)
+                    out, err = io.StringIO(), io.StringIO()
+                    with patch.dict(os.environ, env, clear=True), patch.object(sys, 'argv', ['helper', 'execute']), patch(__name__ + '.guard', side_effect=PermissionError(canaries[0]) if case == 'guard' else None), patch.object(subprocess, 'run', side_effect=results) as run, patch('builtins.open', side_effect=safe_open), patch.object(os, 'open', side_effect=fake_auth_open), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                        self.assertEqual(main(), 1)
+                        if case == 'guard':
+                            run.assert_not_called()
+                            self.assertEqual(os.environ['CLASPRC_JSON'], env['CLASPRC_JSON'])
+                    summary_text = summary.read_text() if summary.exists() else ''
+                    for canary in canaries:
+                        self.assertNotIn(canary, out.getvalue() + err.getvalue() + summary_text)
+                    evidence = json.loads(out.getvalue().splitlines()[-1])
+                    self.assertEqual((evidence['diagnostic_stage'], evidence['diagnostic_code']), (stage, code))
+                    self.assertEqual(evidence['status'], 'HOLD')
+                    self.assertFalse(evidence['known_good_rollback'])
+                    self.assertEqual(err.getvalue(), '')
+        def test_diagnostic_allowlist(self):
+            out = io.StringIO()
+            with patch.dict(os.environ, {}, clear=True), contextlib.redirect_stdout(out):
+                report_failure(Diagnostic('PRIVATE_CANARY_STAGE', 'PRIVATE_CANARY_CODE'))
+            self.assertNotIn('PRIVATE_CANARY', out.getvalue())
+            result = json.loads(out.getvalue())
+            self.assertIn(result['diagnostic_stage'], STAGES)
+            self.assertIn(result['diagnostic_code'], CODES)
     result = unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromTestCase(Fixtures))
     return 0 if result.wasSuccessful() else 1
 
@@ -200,17 +357,17 @@ def main():
         return self_test()
     try:
         if sys.argv[1:] == ['guard']:
-            guard()
+            checked('IMMUTABLE_MAIN_OR_AUDIT_GUARD', guard)
         elif sys.argv[1:] == ['execute']:
             execute()
         else:
-            raise ValueError('MODE')
+            raise Diagnostic('INVOCATION_MODE', 'INVALID_VALUE')
         return 0
+    except Diagnostic as failure:
+        report_failure(failure)
+        return 1
     except Exception:
-        # Never emit raw errors, subprocess output, auth or source content.
-        emit({'schema': 'H3_APPS_SCRIPT_READONLY_DEPLOYMENT_AUDIT_V1',
-              'status': 'HOLD', 'reason': 'GUARD_PERMISSION_OR_METADATA_UNAVAILABLE',
-              'known_good_rollback': False})
+        report_failure(Diagnostic('INVOCATION_MODE', 'OPERATION_FAILED'))
         return 1
 
 
