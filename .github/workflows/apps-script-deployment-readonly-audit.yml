@@ -1,0 +1,43 @@
+name: Apps Script deployment read-only audit
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Existing reference deployment or read-only inventory
+        type: choice
+        required: true
+        default: READ_ONLY_INVENTORY
+        options:
+          - READ_ONLY_INVENTORY
+          - AKfycbxmJnIPTKJY5beUVAU5d0RyKb0Nj-YarY8EkdyczgXHpJKVw4-0kdjv6cYEUXEDtw5D
+
+permissions:
+  contents: read
+
+concurrency:
+  group: apps-script-deployment-readonly-audit
+  cancel-in-progress: false
+
+jobs:
+  deployment-metadata:
+    if: github.ref == 'refs/heads/main' && github.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Verify immutable audited main before credential access
+        run: python3 .github/scripts/apps_script_deployment_readonly_audit.py guard
+      - name: Install pinned read-only CLI
+        run: npm install --global --ignore-scripts @google/clasp@3.4.0
+      - name: Read existing metadata
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+          AUDIT_TARGET: ${{ inputs.target }}
+        run: python3 .github/scripts/apps_script_deployment_readonly_audit.py execute
