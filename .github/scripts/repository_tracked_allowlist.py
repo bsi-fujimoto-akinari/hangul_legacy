@@ -8,6 +8,8 @@ import subprocess
 import sys
 
 allowed = {
+    '.github/workflows/apps-script-deployment-readonly-audit.yml',
+    '.github/scripts/apps_script_deployment_readonly_audit.py',
     '.clasp.json',
     '.gitignore',
     '.gitattributes',
