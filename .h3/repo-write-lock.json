@@ -1,11 +1,5 @@
 {
   "schema": "H3_REPO_WRITE_LOCK_V1",
   "repository": "bsi-fujimoto-akinari/hangul_legacy",
-  "lock": {
-    "lock_id": "source-u6-sanitized-diagnostics-20261106",
-    "holder": "WORK",
-    "base_sha": "4898128ddc77d234af68f1547d113c63e5dac900",
-    "acquired_at": "2026-11-06T10:26:15.879802+00:00",
-    "expires_at": "2026-11-06T10:36:15.879802+00:00"
-  }
+  "lock": null
 }
