@@ -4,6 +4,16 @@
 The repository is public: GitHub guard GETs deliberately use no credential and
 need no Actions token permission. Permission/rate failures stop before auth.
 Run `self-test` for offline fixtures; it never reads credentials or the network.
+
+`execute-refresh-diagnostic` is a separate opt-in mode requiring fresh owner
+approval for its potential credentialed OAuth refresh POST. The existing manual
+workflow calls `execute` and does NOT opt in. No dispatch is authorized by source
+preparation. A refresh success proves neither deployment access nor CLI scopes;
+invalid_grant does not prove expiry. No refreshed token is saved or used.
+
+Contracts: Google identity/protocols/oauth2/web-server (refresh access token),
+RFC 6749 sections 5.1/5.2/6, and google/clasp commit
+efd052467c651f64dfce07aa6e44e21353da9cf2 src/auth/file_credential_store.ts.
 """
 import json
 import os
@@ -12,6 +22,9 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
+import urllib.parse
 import urllib.request
 
 REPO = 'bsi-fujimoto-akinari/hangul_legacy'
@@ -29,7 +42,14 @@ STAGES = frozenset({
 })
 CODES = frozenset({'OPERATION_FAILED', 'TIMEOUT', 'COMMAND_FAILED',
                    'INVALID_JSON', 'INVALID_VALUE', 'OUTPUT_BOUND',
-                   'AUTH_ENVELOPE_INVALID', 'AUTH_DEFAULT_MISSING', 'AUTH_ENVELOPE_UNKNOWN'})
+                   'AUTH_ENVELOPE_INVALID', 'AUTH_DEFAULT_MISSING', 'AUTH_ENVELOPE_UNKNOWN',
+                   'REFRESH_INVALID_GRANT', 'REFRESH_INVALID_CLIENT',
+                   'REFRESH_SUCCEEDED_LIST_STILL_FAILED', 'REFRESH_NOT_APPLICABLE',
+                   'COMMAND_FAILED_UNKNOWN'})
+REFRESH_URL = 'https://oauth2.googleapis.com/token'
+REFRESH_MAX_BYTES = 8192
+REFRESH_TIMEOUT = 3
+REFRESH_DEADLINE = 5
 
 
 class Diagnostic(Exception):
@@ -169,7 +189,114 @@ def credential_shape(secret):
     return 'AUTH_ENVELOPE_UNKNOWN'
 
 
-def execute():
+def refresh_fields(secret):
+    # Same default precedence as pinned clasp; never borrow a named/other client.
+    if credential_shape(secret) is not None:
+        return None
+    tokens = secret.get('tokens')
+    if isinstance(tokens, dict) and tokens.get('default'):
+        credential = tokens['default']
+        values = tuple(credential[key] for key in
+                       ('client_id', 'client_secret', 'refresh_token'))
+    elif secret.get('token') and secret.get('oauth2ClientSettings'):
+        settings = secret['oauth2ClientSettings']
+        values = (settings['clientId'], settings['clientSecret'],
+                  secret['token']['refresh_token'])
+    else:
+        # V1 global requires clasp's implicit built-in client. Do not guess it,
+        # even if a top-level refresh_token is present; access-only is also N/A.
+        return None
+    if any(not isinstance(v, str) or not v.strip() or len(v) > 4096 for v in values):
+        return None
+    return dict(zip(('client_id', 'client_secret', 'refresh_token'), values))
+
+
+def refresh_diagnostic(secret):
+    # Called once only after opt-in LIST_DEPLOYMENTS_COMMAND/COMMAND_FAILED.
+    # Every path returns a fixed label; no raw response/exception may escape.
+    class NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *args, **kwargs):
+            return None
+
+    def unique_pairs(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError()
+            result[key] = value
+        return result
+
+    try:
+        fields = refresh_fields(secret)
+        if fields is None:
+            return 'REFRESH_NOT_APPLICABLE'
+        fields['grant_type'] = 'refresh_token'
+        body = urllib.parse.urlencode(fields).encode('ascii')
+        del fields
+        if len(body) > 65536:
+            return 'COMMAND_FAILED_UNKNOWN'
+        request = urllib.request.Request(REFRESH_URL, data=body, method='POST',
+                    headers={'Content-Type': 'application/x-www-form-urlencoded',
+                             'Accept': 'application/json'})
+        del body
+        # Disable environment proxy routing and redirects. urllib has no retry.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect)
+        deadline = time.monotonic() + REFRESH_DEADLINE
+        try:
+            response = opener.open(request, timeout=REFRESH_TIMEOUT)
+        except urllib.error.HTTPError as failure:
+            response = failure
+        del request, opener
+        with response:
+            status = response.code
+            if status not in (200, 400):
+                return 'COMMAND_FAILED_UNKNOWN'
+            if response.headers.get_content_type() != 'application/json':
+                return 'COMMAND_FAILED_UNKNOWN'
+            length = response.headers.get('Content-Length')
+            if length is not None and (not length.isascii() or not length.isdecimal()
+                                       or int(length) > REFRESH_MAX_BYTES):
+                return 'COMMAND_FAILED_UNKNOWN'
+            raw = b''
+            # read1 avoids an unbounded wait for a full buffer on a trickling
+            # peer. Each socket operation also has the short timeout above.
+            while len(raw) <= REFRESH_MAX_BYTES:
+                if time.monotonic() >= deadline:
+                    return 'COMMAND_FAILED_UNKNOWN'
+                chunk = response.read1(REFRESH_MAX_BYTES + 1 - len(raw))
+                if not chunk:
+                    break
+                raw += chunk
+            if len(raw) > REFRESH_MAX_BYTES or time.monotonic() >= deadline:
+                return 'COMMAND_FAILED_UNKNOWN'
+        payload = json.loads(raw.decode('utf-8'), object_pairs_hook=unique_pairs,
+                             parse_constant=lambda _: None)
+        del raw, chunk, response
+        if not isinstance(payload, dict):
+            return 'COMMAND_FAILED_UNKNOWN'
+        if status == 400:
+            allowed = {'error', 'error_description', 'error_uri', 'error_subtype'}
+            if (not set(payload) <= allowed
+                    or not all(isinstance(v, str) for v in payload.values())):
+                return 'COMMAND_FAILED_UNKNOWN'
+            # Numeric status alone, arbitrary text and unknown errors stay UNKNOWN.
+            return {'invalid_grant': 'REFRESH_INVALID_GRANT',
+                    'invalid_client': 'REFRESH_INVALID_CLIENT'}.get(
+                        payload.get('error'), 'COMMAND_FAILED_UNKNOWN')
+        if (set(payload) <= {'access_token', 'expires_in', 'token_type', 'scope'}
+                and isinstance(payload.get('access_token'), str)
+                and 0 < len(payload['access_token']) <= 4096
+                and type(payload.get('expires_in')) is int
+                and 0 < payload['expires_in'] <= 86400
+                and payload.get('token_type') == 'Bearer'
+                and ('scope' not in payload or isinstance(payload['scope'], str))):
+            return 'REFRESH_SUCCEEDED_LIST_STILL_FAILED'
+        return 'COMMAND_FAILED_UNKNOWN'
+    except Exception:
+        return 'COMMAND_FAILED_UNKNOWN'
+
+
+def execute(refresh_enabled=False):
     checked('IMMUTABLE_MAIN_OR_AUDIT_GUARD', guard)
     target = os.environ.get('AUDIT_TARGET', '')
     if target not in (INVENTORY, DEPLOYMENT):
@@ -196,9 +323,15 @@ def execute():
             for command, stage in (('list-deployments', 'LIST_DEPLOYMENTS_COMMAND'),
                                    ('list-versions', 'LIST_VERSIONS_COMMAND')):
                 # Only these fixed nonmutating commands; never forward diagnostics.
-                result = checked(stage, lambda: subprocess.run(
-                    ['clasp', '--auth', str(auth), '--json', command, SCRIPT],
-                    env=clean, capture_output=True, timeout=45, check=True))
+                try:
+                    result = checked(stage, lambda: subprocess.run(
+                        ['clasp', '--auth', str(auth), '--json', command, SCRIPT],
+                        env=clean, capture_output=True, timeout=45, check=True))
+                except Diagnostic as failure:
+                    if (refresh_enabled and stage == 'LIST_DEPLOYMENTS_COMMAND'
+                            and failure.code == 'COMMAND_FAILED'):
+                        raise Diagnostic(stage, refresh_diagnostic(secret)) from None
+                    raise
                 if len(result.stdout) > MAX_BYTES or len(result.stderr) > MAX_BYTES:
                     raise Diagnostic('CLI_RESPONSE_JSON_OR_BOUNDS', 'OUTPUT_BOUND')
                 outputs.append(checked('CLI_RESPONSE_JSON_OR_BOUNDS',
@@ -229,6 +362,11 @@ def report_failure(failure):
                 'status': 'HOLD', 'reason': 'GUARD_PERMISSION_OR_METADATA_UNAVAILABLE',
                 'diagnostic_stage': safe.stage, 'diagnostic_code': safe.code,
                 'known_good_rollback': False}
+    if safe.code.startswith('REFRESH_') or safe.code == 'COMMAND_FAILED_UNKNOWN':
+        evidence.update(versioned_source_sha256=None,
+                        source_provenance='UNKNOWN_VERSIONED_CONTENT_NOT_READ',
+                        open_gates=['VERSIONED_SOURCE_IDENTITY', 'PROVIDER_ENDPOINT_TYPE',
+                                    'OWNER_REACHABILITY', 'KNOWN_GOOD_SIGNOFF'])
     raw = json.dumps(evidence, sort_keys=True)
     try:
         print(raw)
@@ -433,7 +571,175 @@ def self_test():
             result = json.loads(out.getvalue())
             self.assertIn(result['diagnostic_stage'], STAGES)
             self.assertIn(result['diagnostic_code'], CODES)
-    result = unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromTestCase(Fixtures))
+
+        def test_refresh_envelope_precedence(self):
+            modern = {'type': 'authorized_user', 'client_id': 'SYNTHETIC_CLIENT',
+                      'client_secret': 'SYNTHETIC_SECRET', 'refresh_token': 'SYNTHETIC_REFRESH'}
+            local = {'token': {'refresh_token': 'SYNTHETIC_LOCAL_REFRESH'},
+                     'oauth2ClientSettings': {'clientId': 'SYNTHETIC_LOCAL_CLIENT',
+                                              'clientSecret': 'SYNTHETIC_LOCAL_SECRET'}}
+            for envelope in ({'tokens': {'default': modern}},
+                             dict(local, tokens={'default': modern})):
+                self.assertEqual(refresh_fields(envelope)['refresh_token'], modern['refresh_token'])
+            for envelope in (local, dict(local, tokens={'named': modern})):
+                self.assertEqual(refresh_fields(envelope)['client_id'], 'SYNTHETIC_LOCAL_CLIENT')
+            for envelope in ({'access_token': 'SYNTHETIC_ACCESS'},
+                             {'access_token': 'SYNTHETIC_ACCESS', 'refresh_token': 'SYNTHETIC_REFRESH'},
+                             dict(local, tokens={'default': 'SYNTHETIC_INVALID'}),
+                             {'tokens': {'named': modern}}, [], {}):
+                with patch.object(urllib.request, 'build_opener') as build:
+                    self.assertEqual(refresh_diagnostic(envelope), 'REFRESH_NOT_APPLICABLE')
+                    build.assert_not_called()
+
+        def test_refresh_response_matrix(self):
+            from email.message import Message
+            from types import SimpleNamespace
+            from unittest.mock import Mock
+            secret = {'tokens': {'default': {'type': 'authorized_user',
+                      'client_id': 'SYNTHETIC_CLIENT', 'client_secret': 'SYNTHETIC_SECRET',
+                      'refresh_token': 'SYNTHETIC_REFRESH'}}}
+            success = {'access_token': 'SYNTHETIC_RESPONSE_CANARY',
+                       'expires_in': 3600, 'token_type': 'Bearer', 'scope': 'SYNTHETIC_SCOPE'}
+            cases = [
+                (200, success, 'REFRESH_SUCCEEDED_LIST_STILL_FAILED'),
+                (400, {'error': 'invalid_grant'}, 'REFRESH_INVALID_GRANT'),
+                (400, {'error': 'invalid_client', 'error_description': 'SYNTHETIC_秘密'}, 'REFRESH_INVALID_CLIENT'),
+                (400, {'error': 'unknown', 'error_description': 'invalid_grant'}, 'COMMAND_FAILED_UNKNOWN'),
+                (401, {'error': 'invalid_client'}, 'COMMAND_FAILED_UNKNOWN'),
+                (403, {'error': 'invalid_grant'}, 'COMMAND_FAILED_UNKNOWN'),
+                (429, {'error': 'invalid_grant'}, 'COMMAND_FAILED_UNKNOWN'),
+                (500, {'error': 'invalid_client'}, 'COMMAND_FAILED_UNKNOWN'),
+                (302, success, 'COMMAND_FAILED_UNKNOWN'),
+                (307, success, 'COMMAND_FAILED_UNKNOWN'),
+                (200, dict(success, error='invalid_grant'), 'COMMAND_FAILED_UNKNOWN'),
+                (400, dict(success, error='invalid_grant'), 'COMMAND_FAILED_UNKNOWN'),
+                (200, dict(success, expires_in=True), 'COMMAND_FAILED_UNKNOWN'),
+                (200, dict(success, token_type='SYNTHETIC_OTHER'), 'COMMAND_FAILED_UNKNOWN'),
+                (200, {}, 'COMMAND_FAILED_UNKNOWN'),
+                (200, [], 'COMMAND_FAILED_UNKNOWN'),
+                (400, {'error': {'error': 'invalid_grant'}}, 'COMMAND_FAILED_UNKNOWN'),
+                (400, {'error': 'invalid_grant', 'extra': 'SYNTHETIC'}, 'COMMAND_FAILED_UNKNOWN'),
+            ]
+            for status, payload, expected in cases:
+                for http_error in (False, True) if status == 400 else (False,):
+                    with self.subTest(status=status, expected=expected, http_error=http_error):
+                        headers = Message()
+                        headers['Content-Type'] = 'application/json'
+                        raw = json.dumps(payload).encode()
+                        response = io.BytesIO(raw)
+                        response.code, response.headers = status, headers
+                        error = urllib.error.HTTPError(REFRESH_URL, status, 'SYNTHETIC_ERROR', headers, response)
+                        open_call = Mock(side_effect=error) if http_error else Mock(return_value=response)
+                        with tempfile.TemporaryDirectory() as tmp:
+                            summary = Path(tmp) / 'summary'
+                            out, err = io.StringIO(), io.StringIO()
+                            with patch.dict(os.environ, {'GITHUB_STEP_SUMMARY': str(summary)}, clear=True), patch.object(urllib.request, 'build_opener', return_value=SimpleNamespace(open=open_call)), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                                label = refresh_diagnostic(secret)
+                                self.assertEqual(label, expected)
+                                report_failure(Diagnostic('LIST_DEPLOYMENTS_COMMAND', label))
+                            sinks = out.getvalue() + err.getvalue() + summary.read_text()
+                            self.assertNotIn('SYNTHETIC', sinks)
+                            self.assertNotIn('秘密', sinks)
+                            evidence = json.loads(out.getvalue())
+                            self.assertEqual(evidence['status'], 'HOLD')
+                            self.assertIsNone(evidence['versioned_source_sha256'])
+                            self.assertFalse(evidence['known_good_rollback'])
+                        open_call.assert_called_once()
+                        request = open_call.call_args.args[0]
+                        self.assertEqual(request.full_url, REFRESH_URL)
+                        self.assertEqual(request.get_method(), 'POST')
+                        self.assertNotIn('SYNTHETIC', request.full_url)
+                        form = urllib.parse.parse_qs(request.data.decode())
+                        self.assertEqual(set(form), {'client_id', 'client_secret', 'refresh_token', 'grant_type'})
+                        self.assertEqual(form['grant_type'], ['refresh_token'])
+                        self.assertEqual(open_call.call_args.kwargs, {'timeout': REFRESH_TIMEOUT})
+                        self.assertTrue(response.closed)
+
+        def test_refresh_bounds_network_and_json(self):
+            from email.message import Message
+            from types import SimpleNamespace
+            from unittest.mock import Mock
+            secret = {'token': {'refresh_token': 'SYNTHETIC_REFRESH'},
+                      'oauth2ClientSettings': {'clientId': 'SYNTHETIC_CLIENT', 'clientSecret': 'SYNTHETIC_SECRET'}}
+            for raw, content_type, length in [
+                (b'not json SYNTHETIC', 'application/json', None),
+                (b'\xff', 'application/json', None),
+                (b'x' * (REFRESH_MAX_BYTES + 1), 'application/json', None),
+                (b'{"error":"invalid_grant","error":"invalid_client"}', 'application/json', None),
+                (b'{"error":"invalid_grant"}', 'text/html', None),
+                (b'{}', 'application/json', str(REFRESH_MAX_BYTES + 1)),
+                (b'{}', 'application/json', 'SYNTHETIC'),
+            ]:
+                headers = Message()
+                headers['Content-Type'] = content_type
+                if length is not None:
+                    headers['Content-Length'] = length
+                response = io.BytesIO(raw)
+                response.code, response.headers = 400, headers
+                call = Mock(return_value=response)
+                with patch.object(urllib.request, 'build_opener', return_value=SimpleNamespace(open=call)):
+                    self.assertEqual(refresh_diagnostic(secret), 'COMMAND_FAILED_UNKNOWN')
+                call.assert_called_once()
+                self.assertTrue(response.closed)
+            for failure in (TimeoutError('SYNTHETIC'), OSError('SYNTHETIC'),
+                            urllib.error.URLError('SYNTHETIC')):
+                call = Mock(side_effect=failure)
+                with patch.object(urllib.request, 'build_opener', return_value=SimpleNamespace(open=call)):
+                    self.assertEqual(refresh_diagnostic(secret), 'COMMAND_FAILED_UNKNOWN')
+                call.assert_called_once()
+            response = io.BytesIO(b'{"error":"invalid_grant"}')
+            response.code, response.headers = 400, headers
+            with patch.object(urllib.request, 'build_opener', return_value=SimpleNamespace(open=Mock(return_value=response))), patch.object(time, 'monotonic', side_effect=[0, 6]):
+                self.assertEqual(refresh_diagnostic(secret), 'COMMAND_FAILED_UNKNOWN')
+            self.assertTrue(response.closed)
+            # Exercise the actual redirect rejection policy without transport.
+            with patch.object(urllib.request, 'build_opener', return_value=SimpleNamespace(open=Mock(side_effect=OSError()))) as build:
+                self.assertEqual(refresh_diagnostic(secret), 'COMMAND_FAILED_UNKNOWN')
+            proxy, redirect = build.call_args.args
+            self.assertEqual(proxy.proxies, {})
+            for status in (301, 302, 303, 307, 308):
+                self.assertIsNone(redirect().redirect_request(None, None, status, None, None, None))
+
+        def test_refresh_failure_only_integration(self):
+            from types import SimpleNamespace
+            secret = {'tokens': {'default': {'type': 'authorized_user',
+                      'client_id': 'SYNTHETIC_CLIENT', 'client_secret': 'SYNTHETIC_SECRET',
+                      'refresh_token': 'SYNTHETIC_REFRESH'}}}
+            failed = subprocess.CalledProcessError(1, 'SYNTHETIC_COMMAND',
+                       output=b'SYNTHETIC_STDOUT', stderr=b'SYNTHETIC_STDERR')
+            version = SimpleNamespace(stdout='3.4.0')
+            positive = SimpleNamespace(stdout=b'[]', stderr=b'')
+            timeout = subprocess.TimeoutExpired('SYNTHETIC', 45)
+            for mode, case, expected in [
+                ('execute-refresh-diagnostic', 'deployments', 1),
+                ('execute', 'deployments', 0),
+                ('execute-refresh-diagnostic', 'success', 0),
+                ('execute-refresh-diagnostic', 'versions', 0),
+                ('execute-refresh-diagnostic', 'timeout', 0),
+                ('execute-refresh-diagnostic', 'guard', 0),
+                ('execute-refresh-diagnostic', 'bad_auth', 0),
+            ]:
+                with self.subTest(mode=mode, case=case), tempfile.TemporaryDirectory() as tmp:
+                    summary = Path(tmp) / 'summary'
+                    env = {'CLASPRC_JSON': '[]' if case == 'bad_auth' else json.dumps(secret),
+                           'AUDIT_TARGET': INVENTORY, 'GITHUB_STEP_SUMMARY': str(summary)}
+                    results = [version, failed if case == 'deployments' else timeout if case == 'timeout' else positive,
+                               failed if case == 'versions' else positive]
+                    out, err = io.StringIO(), io.StringIO()
+                    with patch.dict(os.environ, env, clear=True), patch.object(sys, 'argv', ['helper', mode]), patch(__name__ + '.guard', side_effect=ValueError('SYNTHETIC') if case == 'guard' else None), patch.object(subprocess, 'run', side_effect=results) as run, patch(__name__ + '.refresh_diagnostic', return_value='REFRESH_INVALID_GRANT') as refresh, contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                        self.assertEqual(main(), 0 if case == 'success' else 1)
+                    self.assertEqual(refresh.call_count, expected)
+                    if expected:
+                        self.assertEqual(run.call_count, 2)  # version + list only
+                    for call in run.call_args_list:
+                        if '--auth' in call.args[0]:
+                            self.assertFalse(Path(call.args[0][2]).exists())
+                    self.assertNotIn('SYNTHETIC', out.getvalue() + err.getvalue() + summary.read_text())
+                    self.assertEqual(err.getvalue(), '')
+    import socket
+    # Fail before any unexpected real network/process attempt, even in fixtures.
+    with patch.dict(os.environ, {}, clear=True), patch.object(socket, 'create_connection', side_effect=AssertionError('OFFLINE_ONLY')), patch.object(urllib.request, 'build_opener', side_effect=AssertionError('OFFLINE_ONLY')), patch.object(urllib.request, 'urlopen', side_effect=AssertionError('OFFLINE_ONLY')), patch.object(subprocess, 'run', side_effect=AssertionError('OFFLINE_ONLY')), patch.object(subprocess, 'check_output', side_effect=AssertionError('OFFLINE_ONLY')):
+        result = unittest.TextTestRunner().run(unittest.defaultTestLoader.loadTestsFromTestCase(Fixtures))
     return 0 if result.wasSuccessful() else 1
 
 
@@ -445,6 +751,8 @@ def main():
             checked('IMMUTABLE_MAIN_OR_AUDIT_GUARD', guard)
         elif sys.argv[1:] == ['execute']:
             execute()
+        elif sys.argv[1:] == ['execute-refresh-diagnostic']:
+            execute(refresh_enabled=True)
         else:
             raise Diagnostic('INVOCATION_MODE', 'INVALID_VALUE')
         return 0
