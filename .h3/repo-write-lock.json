@@ -1,5 +1,21 @@
 {
   "schema": "H3_REPO_WRITE_LOCK_V1",
   "repository": "bsi-fujimoto-akinari/hangul_legacy",
-  "lock": null
+  "lock": {
+    "lock_id": "codex-source-u6-workflow-1794013620618",
+    "holder": "CODEX",
+    "work_unit_id": "MIG-SOURCE-PROMOTION-6/8",
+    "operation": "SOURCE_U6_SINGLE_MANUAL_OAUTH_DIAGNOSTIC_WORKFLOW_ACTIVATION_1",
+    "base_sha": "39cbc96bfa2505bea5f0184896455104cbbfe7ad",
+    "acquired_at": "2026-11-07T01:07:00.618Z",
+    "expires_at": "2026-11-07T01:17:00.618Z",
+    "ttl_seconds": 600,
+    "paths": [
+      ".github/workflows/apps-script-deployment-readonly-audit.yml"
+    ],
+    "production_mutation": false,
+    "external_effect": false,
+    "stage_advance": false,
+    "force": false
+  }
 }
